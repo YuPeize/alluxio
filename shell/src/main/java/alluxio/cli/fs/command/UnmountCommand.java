@@ -12,8 +12,11 @@
 package alluxio.cli.fs.command;
 
 import alluxio.AlluxioURI;
-import alluxio.client.file.FileSystem;
+import alluxio.annotation.PublicApi;
+import alluxio.cli.CommandUtils;
+import alluxio.client.file.FileSystemContext;
 import alluxio.exception.AlluxioException;
+import alluxio.exception.status.InvalidArgumentException;
 
 import org.apache.commons.cli.CommandLine;
 
@@ -25,13 +28,14 @@ import javax.annotation.concurrent.ThreadSafe;
  * Unmounts an Alluxio path.
  */
 @ThreadSafe
+@PublicApi
 public final class UnmountCommand extends AbstractFileSystemCommand {
 
   /**
-   * @param fs the filesystem of Alluxio
+   * @param fsContext the filesystem of Alluxio
    */
-  public UnmountCommand(FileSystem fs) {
-    super(fs);
+  public UnmountCommand(FileSystemContext fsContext) {
+    super(fsContext);
   }
 
   @Override
@@ -40,17 +44,22 @@ public final class UnmountCommand extends AbstractFileSystemCommand {
   }
 
   @Override
-  protected int getNumOfArgs() {
-    return 1;
+  public void validateArgs(CommandLine cl) throws InvalidArgumentException {
+    CommandUtils.checkNumOfArgsEquals(this, cl, 1);
+  }
+
+  @Override
+  protected void runPlainPath(AlluxioURI inputPath, CommandLine cl)
+      throws AlluxioException, IOException {
+    mFileSystem.unmount(inputPath);
+    System.out.println("Unmounted " + inputPath);
   }
 
   @Override
   public int run(CommandLine cl) throws AlluxioException, IOException {
     String[] args = cl.getArgs();
     AlluxioURI inputPath = new AlluxioURI(args[0]);
-
-    mFileSystem.unmount(inputPath);
-    System.out.println("Unmounted " + inputPath);
+    runWildCardCmd(inputPath, cl);
     return 0;
   }
 

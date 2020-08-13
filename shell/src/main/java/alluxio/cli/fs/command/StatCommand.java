@@ -12,10 +12,13 @@
 package alluxio.cli.fs.command;
 
 import alluxio.AlluxioURI;
+import alluxio.annotation.PublicApi;
+import alluxio.cli.CommandUtils;
 import alluxio.client.block.AlluxioBlockStore;
-import alluxio.client.file.FileSystem;
+import alluxio.client.file.FileSystemContext;
 import alluxio.client.file.URIStatus;
 import alluxio.exception.AlluxioException;
+import alluxio.exception.status.InvalidArgumentException;
 
 import com.google.common.base.Preconditions;
 import org.apache.commons.cli.CommandLine;
@@ -25,6 +28,7 @@ import org.apache.commons.cli.Options;
 import java.io.IOException;
 import java.text.SimpleDateFormat;
 import java.util.Date;
+import java.util.List;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -36,12 +40,13 @@ import javax.annotation.concurrent.ThreadSafe;
  * If path is a file, it displays the file's all blocks info.
  */
 @ThreadSafe
-public final class StatCommand extends WithWildCardPathCommand {
+@PublicApi
+public final class StatCommand extends AbstractFileSystemCommand {
   /**
-   * @param fs the filesystem of Alluxio
+   * @param fsContext the filesystem of Alluxio
    */
-  public StatCommand(FileSystem fs) {
-    super(fs);
+  public StatCommand(FileSystemContext fsContext) {
+    super(fsContext);
   }
 
   @Override
@@ -61,7 +66,8 @@ public final class StatCommand extends WithWildCardPathCommand {
   }
 
   @Override
-  protected void runCommand(AlluxioURI path, CommandLine cl) throws AlluxioException, IOException {
+  protected void runPlainPath(AlluxioURI path, CommandLine cl)
+      throws AlluxioException, IOException {
     URIStatus status = mFileSystem.getStatus(path);
     if (cl.hasOption('f')) {
       System.out.println(formatOutput(cl, status));
@@ -72,13 +78,27 @@ public final class StatCommand extends WithWildCardPathCommand {
       } else {
         System.out.println(path + " is a file path.");
         System.out.println(status);
-        System.out.println("Containing the following blocks: ");
-        AlluxioBlockStore blockStore = AlluxioBlockStore.create();
-        for (long blockId : status.getBlockIds()) {
-          System.out.println(blockStore.getInfo(blockId));
+        AlluxioBlockStore blockStore = AlluxioBlockStore.create(mFsContext);
+        List<Long> blockIds = status.getBlockIds();
+        if (blockIds.isEmpty()) {
+          System.out.println("This file does not contain any blocks.");
+        } else {
+          System.out.println("Containing the following blocks: ");
+          for (long blockId : blockIds) {
+            System.out.println(blockStore.getInfo(blockId));
+          }
         }
       }
     }
+  }
+
+  @Override
+  public int run(CommandLine cl) throws AlluxioException, IOException {
+    String[] args = cl.getArgs();
+    AlluxioURI path = new AlluxioURI(args[0]);
+    runWildCardCmd(path, cl);
+
+    return 0;
   }
 
   @Override
@@ -98,6 +118,11 @@ public final class StatCommand extends WithWildCardPathCommand {
         + " %y shows 'yyyy-MM-dd HH:mm:ss' (the UTC date),"
         + " %Y it shows milliseconds since January 1, 1970 UTC;"
         + "   \"%b\": Number of blocks allocated for file";
+  }
+
+  @Override
+  public void validateArgs(CommandLine cl) throws InvalidArgumentException {
+    CommandUtils.checkNumOfArgsEquals(this, cl, 1);
   }
 
   private static final String FORMAT_REGEX = "%([bguyzNY])";

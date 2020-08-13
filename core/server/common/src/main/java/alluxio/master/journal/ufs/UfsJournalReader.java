@@ -11,13 +11,15 @@
 
 package alluxio.master.journal.ufs;
 
+import alluxio.ProcessUtils;
 import alluxio.exception.ExceptionMessage;
-import alluxio.exception.InvalidJournalEntryException;
+import alluxio.master.journal.checkpoint.CheckpointInputStream;
 import alluxio.master.journal.JournalEntryStreamReader;
 import alluxio.master.journal.JournalReader;
 import alluxio.proto.journal.Journal;
 import alluxio.proto.journal.Journal.JournalEntry;
 import alluxio.underfs.UnderFileSystem;
+import alluxio.underfs.options.OpenOptions;
 
 import com.google.common.base.Preconditions;
 import org.slf4j.Logger;
@@ -58,6 +60,12 @@ public final class UfsJournalReader implements JournalReader {
   /** Whether the reader is closed. */
   private boolean mClosed;
 
+  /** The next checkpoint to install. */
+  private CheckpointInputStream mCheckpointStream;
+
+  /** The next entry to apply. */
+  private JournalEntry mNextEntry;
+
   /**
    * A simple wrapper that wraps the journal file and the input stream.
    */
@@ -69,7 +77,8 @@ public final class UfsJournalReader implements JournalReader {
     JournalInputStream(UfsJournalFile file) throws IOException {
       mFile = file;
       LOG.info("Reading journal file {}.", file.getLocation());
-      mReader = new JournalEntryStreamReader(mUfs.open(file.getLocation().toString()));
+      mReader = new JournalEntryStreamReader(mUfs.open(file.getLocation().toString(),
+          OpenOptions.defaults().setRecoverFailedOpen(true)));
     }
 
     /**
@@ -127,17 +136,35 @@ public final class UfsJournalReader implements JournalReader {
   }
 
   @Override
-  public Journal.JournalEntry read() throws IOException, InvalidJournalEntryException {
+  public CheckpointInputStream getCheckpoint() {
+    return Preconditions.checkNotNull(mCheckpointStream, "mCheckpointStream");
+  }
+
+  @Override
+  public Journal.JournalEntry getEntry() {
+    Preconditions.checkState(mCheckpointStream == null,
+        "Should not call getEntry() when a checkpoint is available");
+    Preconditions.checkNotNull(mNextEntry);
+    return mNextEntry;
+  }
+
+  private void advanceEntry() throws IOException {
     while (true) {
-      Journal.JournalEntry entry = readInternal();
-      if (entry == null) {
-        return null;
+      Journal.JournalEntry entry;
+      try {
+        entry = readInternal();
+      } catch (IOException e) {
+        throw new IOException(String
+            .format("Failed to read from journal: %s error: %s", mJournal.getLocation(),
+                e.getMessage()), e);
       }
-      if (mInputStream.mFile.isCheckpoint()) {
-        return entry;
-      } else if (entry.getSequenceNumber() == mNextSequenceNumber) {
+      if (entry == null) {
+        return;
+      }
+      if (entry.getSequenceNumber() == mNextSequenceNumber) {
         mNextSequenceNumber++;
-        return entry;
+        mNextEntry = entry;
+        return;
       } else if (entry.getSequenceNumber() < mNextSequenceNumber) {
         // This can happen in the following two scenarios:
         // 1. The primary master failed when renaming the current log to completed log which might
@@ -147,8 +174,8 @@ public final class UfsJournalReader implements JournalReader {
         LOG.debug("Skipping duplicate log entry {} (next sequence number: {}).", entry,
             mNextSequenceNumber);
       } else {
-        throw new InvalidJournalEntryException(ExceptionMessage.JOURNAL_ENTRY_MISSING,
-            mNextSequenceNumber, entry.getSequenceNumber());
+        throw new IllegalStateException(ExceptionMessage.JOURNAL_ENTRY_MISSING.getMessage(
+            mNextSequenceNumber, entry.getSequenceNumber()));
       }
     }
   }
@@ -157,10 +184,8 @@ public final class UfsJournalReader implements JournalReader {
    * Reads the next journal entry.
    *
    * @return the journal entry, null if no journal entry is found
-   * @throws InvalidJournalEntryException if the journal entry found is invalid
    */
-  private Journal.JournalEntry readInternal() throws IOException, InvalidJournalEntryException {
-    updateInputStream();
+  private Journal.JournalEntry readInternal() throws IOException {
     if (mInputStream == null) {
       return null;
     }
@@ -168,21 +193,13 @@ public final class UfsJournalReader implements JournalReader {
     if (entry != null) {
       return entry;
     }
-    // If this is the checkpoint file, we need to reset the sequence number to update the stream
-    // because the sequence number in the checkpoint entries is not in the same space as the
-    // sequence number in the edit logs.
-    if (mInputStream.mFile.isCheckpoint()) {
-      mNextSequenceNumber = mInputStream.mFile.getEnd();
-      return readInternal();
-    } else if (mInputStream.mFile.isIncompleteLog()) {
+    if (mInputStream.mFile.isIncompleteLog()) {
       // Incomplete logs may end early.
       return null;
     } else {
       Preconditions.checkState(mInputStream.mFile.isCompletedLog(),
           "Expected log to be either checkpoint, incomplete, or complete");
-      LOG.error("Journal entry {} was truncated, exiting to prevent inconsistency",
-          mNextSequenceNumber);
-      System.exit(-1);
+      ProcessUtils.fatalError(LOG, "Journal entry %s was truncated", mNextSequenceNumber);
       return null;
     }
   }
@@ -210,13 +227,11 @@ public final class UfsJournalReader implements JournalReader {
       if (!snapshot.getCheckpoints().isEmpty()) {
         UfsJournalFile checkpoint = snapshot.getLatestCheckpoint();
         if (mNextSequenceNumber < checkpoint.getEnd()) {
-          mFilesToProcess.add(checkpoint);
-          // Reset the sequence number to 0 because it is not supported to read from checkpoint with
-          // an offset. This can only happen in the following scenario:
-          // 1. Read checkpoint to SN1, then optionally read completed logs to SN2 (>= SN1).
-          // 2. A new checkpoint is written to SN3 (> SN2).
-          // 3. Resume reading from SN2.
-          mNextSequenceNumber = 0;
+          String location = checkpoint.getLocation().toString();
+          LOG.info("Reading checkpoint {}", location);
+          mCheckpointStream = new CheckpointInputStream(
+              mUfs.open(location, OpenOptions.defaults().setRecoverFailedOpen(true)));
+          mNextSequenceNumber = checkpoint.getEnd();
         }
         for (; index < snapshot.getLogs().size(); index++) {
           UfsJournalFile file = snapshot.getLogs().get(index);
@@ -239,5 +254,20 @@ public final class UfsJournalReader implements JournalReader {
     if (!mFilesToProcess.isEmpty()) {
       mInputStream = new JournalInputStream(mFilesToProcess.poll());
     }
+  }
+
+  @Override
+  public State advance() throws IOException {
+    mCheckpointStream = null;
+    mNextEntry = null;
+    updateInputStream();
+    if (mCheckpointStream != null) {
+      return State.CHECKPOINT;
+    }
+    advanceEntry();
+    if (mNextEntry != null) {
+      return State.LOG;
+    }
+    return State.DONE;
   }
 }

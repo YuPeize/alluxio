@@ -13,16 +13,20 @@ package alluxio;
 
 import static alluxio.exception.ExceptionMessage.INCOMPATIBLE_VERSION;
 
-import alluxio.thrift.AlluxioService;
-import alluxio.thrift.AlluxioService.Client;
-import alluxio.thrift.GetServiceVersionTOptions;
-import alluxio.thrift.GetServiceVersionTResponse;
+import alluxio.conf.InstancedConfiguration;
+import alluxio.exception.status.AlluxioStatusException;
+import alluxio.exception.status.NotFoundException;
+import alluxio.exception.status.UnavailableException;
+import alluxio.grpc.ServiceType;
+import alluxio.retry.CountingRetry;
+import alluxio.security.user.BaseUserState;
+import alluxio.util.ConfigurationUtils;
 
 import org.junit.Assert;
-import org.junit.Test;
 import org.junit.Rule;
+import org.junit.Test;
 import org.junit.rules.ExpectedException;
-
+import org.mockito.ArgumentCaptor;
 import org.mockito.Mockito;
 
 import java.io.IOException;
@@ -37,15 +41,26 @@ public final class AbstractClientTest {
   @Rule
   public ExpectedException mExpectedException = ExpectedException.none();
 
-  private final class TestClient extends AbstractClient {
+  private static class BaseTestClient extends AbstractClient {
+    private long mRemoteServiceVersion;
 
-    private TestClient() {
-      super(null, Mockito.mock(InetSocketAddress.class));
+    protected BaseTestClient() {
+      super(ClientContext.create(new InstancedConfiguration(ConfigurationUtils.defaults())), null,
+          () -> new CountingRetry(1));
+    }
+
+    protected BaseTestClient(ClientContext context) {
+      super(context, null, () -> new CountingRetry(1));
+    }
+
+    public BaseTestClient(long remoteServiceVersion) {
+      this();
+      mRemoteServiceVersion = remoteServiceVersion;
     }
 
     @Override
-    protected Client getClient() {
-      return null;
+    protected ServiceType getRemoteServiceType() {
+      return ServiceType.UNKNOWN_SERVICE;
     }
 
     @Override
@@ -59,33 +74,100 @@ public final class AbstractClientTest {
     }
 
     @Override
-    public void checkVersion(AlluxioService.Client thriftClient, long version) throws IOException {
-      super.checkVersion(thriftClient, version);
+    protected long getRemoteServiceVersion() throws AlluxioStatusException {
+      return mRemoteServiceVersion;
     }
+  }
+
+  private static class TestServiceNotFoundClient extends BaseTestClient {
+    protected long getRemoteServiceVersion() throws AlluxioStatusException {
+      throw new NotFoundException("Service not found");
+    }
+
+    @Override
+    protected void afterConnect() throws IOException {
+      return;
+    }
+
+    @Override
+    protected void beforeConnect() throws IOException {
+      return;
+    }
+  }
+
+  @Test
+  public void connectFailToDetermineMasterAddress() throws Exception {
+    alluxio.Client client = new BaseTestClient() {
+      @Override
+      public synchronized InetSocketAddress getAddress() throws UnavailableException {
+        throw new UnavailableException("Failed to determine master address");
+      }
+    };
+    mExpectedException.expect(UnavailableException.class);
+    mExpectedException.expectMessage("Failed to determine address for Test Service Name");
+    client.connect();
   }
 
   @Test
   public void unsupportedVersion() throws Exception {
-    final AlluxioService.Client thriftClient = Mockito.mock(AlluxioService.Client.class);
-    Mockito.when(thriftClient.getServiceVersion(new GetServiceVersionTOptions()))
-        .thenReturn(new GetServiceVersionTResponse().setVersion(1));
     mExpectedException.expect(IOException.class);
     mExpectedException.expectMessage(INCOMPATIBLE_VERSION.getMessage(SERVICE_NAME, 0, 1));
-
-    try (TestClient client = new TestClient()) {
-      client.checkVersion(thriftClient, 0);
-      Assert.fail("checkVersion() should fail");
-    }
+    final AbstractClient client = new BaseTestClient(1);
+    client.checkVersion(0);
+    client.close();
   }
 
   @Test
   public void supportedVersion() throws Exception {
-    final AlluxioService.Client thriftClient = Mockito.mock(AlluxioService.Client.class);
-    Mockito.when(thriftClient.getServiceVersion(new GetServiceVersionTOptions()))
-        .thenReturn(new GetServiceVersionTResponse().setVersion(1));
+    final AbstractClient client = new BaseTestClient(1);
+    client.checkVersion(1);
+    client.close();
+  }
 
-    try (TestClient client = new TestClient()) {
-      client.checkVersion(thriftClient, 1);
+  @Test
+  public void confAddress() throws Exception {
+    ClientContext context = Mockito.mock(ClientContext.class);
+    Mockito.when(context.getClusterConf()).thenReturn(
+        new InstancedConfiguration(ConfigurationUtils.defaults()));
+
+    InetSocketAddress baseAddress = new InetSocketAddress("0.0.0.0", 2000);
+    InetSocketAddress confAddress = new InetSocketAddress("0.0.0.0", 2001);
+    final alluxio.Client client = new BaseTestClient(context) {
+      @Override
+      public synchronized InetSocketAddress getAddress() {
+        return baseAddress;
+      }
+
+      @Override
+      public synchronized InetSocketAddress getConfAddress() {
+        return confAddress;
+      }
+    };
+
+    ArgumentCaptor<InetSocketAddress> argument = ArgumentCaptor.forClass(InetSocketAddress.class);
+
+    Mockito.doThrow(new RuntimeException("test"))
+            .when(context)
+            .loadConfIfNotLoaded(argument.capture());
+    Mockito.doReturn(Mockito.mock(BaseUserState.class))
+            .when(context)
+            .getUserState();
+
+    try {
+      client.connect();
+      Assert.fail();
+    } catch (Exception e) {
+      // ignore any exceptions. It's expected.
     }
+
+    Assert.assertEquals(confAddress, argument.getValue());
+  }
+
+  @Test
+  public void serviceNotFound() throws Exception {
+    mExpectedException.expect(NotFoundException.class);
+    final AbstractClient client = new TestServiceNotFoundClient();
+    client.checkVersion(0);
+    client.close();
   }
 }

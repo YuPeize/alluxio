@@ -11,7 +11,9 @@
 
 package alluxio.retry;
 
-import org.junit.Assert;
+import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertTrue;
+
 import org.junit.Test;
 
 /**
@@ -28,15 +30,15 @@ public final class TimeoutRetryTest {
     final int sleepMs = 10;
     int attempts = 0;
     TimeoutRetry timeoutRetry = new TimeoutRetry(timeoutMs, sleepMs);
-    Assert.assertEquals(0, timeoutRetry.getRetryCount());
+    assertEquals(0, timeoutRetry.getAttemptCount());
     long startMs = System.currentTimeMillis();
-    while (timeoutRetry.attemptRetry()) {
+    while (timeoutRetry.attempt()) {
       attempts++;
     }
     long endMs = System.currentTimeMillis();
-    Assert.assertTrue(attempts > 0);
-    Assert.assertTrue((endMs - startMs) >= timeoutMs);
-    Assert.assertEquals(attempts, timeoutRetry.getRetryCount());
-    Assert.assertTrue(attempts <= (timeoutMs / sleepMs) + 1);
+    assertTrue(attempts > 0);
+    assertTrue((endMs - startMs) >= timeoutMs);
+    assertEquals(attempts, timeoutRetry.getAttemptCount());
+    assertTrue(attempts <= (timeoutMs / sleepMs) + 1);
   }
 }

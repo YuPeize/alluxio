@@ -11,11 +11,9 @@
 
 package alluxio.worker;
 
-import alluxio.Configuration;
-import alluxio.PropertyKey;
+import alluxio.conf.ServerConfiguration;
+import alluxio.conf.PropertyKey;
 import alluxio.util.CommonUtils;
-
-import com.google.common.base.Throwables;
 
 import java.io.Closeable;
 import java.net.InetSocketAddress;
@@ -39,20 +37,17 @@ public interface DataServer extends Closeable {
     /**
      * Factory for {@link DataServer}.
      *
+     * @param hostName the host name of the data server
      * @param dataAddress the address of the data server
      * @param worker the Alluxio worker handle
      * @return the generated {@link DataServer}
      */
-    public static DataServer create(final SocketAddress dataAddress,
-        final WorkerProcess worker) {
-      try {
-        return CommonUtils.createNewClassInstance(
-            Configuration.<DataServer>getClass(PropertyKey.WORKER_DATA_SERVER_CLASS),
-            new Class[] {SocketAddress.class, WorkerProcess.class},
-            new Object[] {dataAddress, worker});
-      } catch (Exception e) {
-        throw Throwables.propagate(e);
-      }
+    public static DataServer create(final String hostName,
+        final SocketAddress dataAddress, final WorkerProcess worker) {
+      return CommonUtils.createNewClassInstance(
+          ServerConfiguration.<DataServer>getClass(PropertyKey.WORKER_DATA_SERVER_CLASS),
+          new Class[] {String.class, SocketAddress.class, WorkerProcess.class},
+          new Object[] {hostName, dataAddress, worker});
     }
   }
 
@@ -70,4 +65,9 @@ public interface DataServer extends Closeable {
    * @return true if the {@link DataServer} is closed, false otherwise
    */
   boolean isClosed();
+
+  /**
+   * Waits for server to terminate.
+   */
+  void awaitTermination();
 }

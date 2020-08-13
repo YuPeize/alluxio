@@ -11,10 +11,10 @@
 
 package alluxio.proxy;
 
-import alluxio.Constants;
 import alluxio.ProcessUtils;
-import alluxio.PropertyKey;
 import alluxio.RuntimeConstants;
+import alluxio.conf.ServerConfiguration;
+import alluxio.util.CommonUtils;
 import alluxio.util.ConfigurationUtils;
 
 import org.slf4j.Logger;
@@ -41,17 +41,20 @@ public final class AlluxioProxy {
       System.exit(-1);
     }
 
-    if (!ConfigurationUtils.masterHostConfigured()) {
-      System.out.println(String.format(
-          "Cannot run alluxio proxy; master hostname is not "
-              + "configured. Please modify %s to either set %s or configure zookeeper with "
-              + "%s=true and %s=[comma-separated zookeeper master addresses]",
-          Constants.SITE_PROPERTIES, PropertyKey.MASTER_HOSTNAME.toString(),
-          PropertyKey.ZOOKEEPER_ENABLED.toString(), PropertyKey.ZOOKEEPER_ADDRESS.toString()));
-      System.exit(1);
+    if (!ConfigurationUtils.masterHostConfigured(ServerConfiguration.global())) {
+      ProcessUtils.fatalError(LOG,
+          ConfigurationUtils.getMasterHostNotConfiguredMessage("Alluxio proxy"));
     }
 
-    ProxyProcess process = ProxyProcess.Factory.create();
+    CommonUtils.PROCESS_TYPE.set(CommonUtils.ProcessType.PROXY);
+    ProxyProcess process;
+    try {
+      process = ProxyProcess.Factory.create();
+    } catch (Throwable t) {
+      ProcessUtils.fatalError(LOG, t, "Failed to create proxy process");
+      // fatalError will exit, so we shouldn't reach here.
+      throw t;
+    }
     ProcessUtils.run(process);
   }
 

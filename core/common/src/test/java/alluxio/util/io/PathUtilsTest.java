@@ -19,6 +19,7 @@ import static org.junit.Assert.fail;
 import static org.junit.Assert.assertArrayEquals;
 import static org.junit.Assert.assertNotEquals;
 
+import alluxio.AlluxioURI;
 import alluxio.Constants;
 import alluxio.exception.ExceptionMessage;
 import alluxio.exception.InvalidPathException;
@@ -28,6 +29,8 @@ import org.junit.Test;
 import org.junit.rules.ExpectedException;
 
 import java.util.ArrayList;
+import java.util.Collection;
+import java.util.Collections;
 
 /**
  * Tests for the {@link PathUtils} class.
@@ -75,7 +78,7 @@ public final class PathUtilsTest {
   @Test
   public void cleanPathException() throws InvalidPathException {
     mException.expect(InvalidPathException.class);
-    assertEquals("/foo/bar", PathUtils.cleanPath("/\\   foo / bar"));
+    PathUtils.cleanPath("");
   }
 
   /**
@@ -103,11 +106,6 @@ public final class PathUtilsTest {
     assertEquals("/foo/bar", PathUtils.concatPath("/foo/", "/bar"));
     assertEquals("/foo/bar", PathUtils.concatPath("/foo/", "/bar/"));
 
-    // Whitespace must be trimmed.
-    assertEquals("/foo/bar", PathUtils.concatPath("/foo ", "bar  "));
-    assertEquals("/foo/bar", PathUtils.concatPath("/foo ", "  bar"));
-    assertEquals("/foo/bar", PathUtils.concatPath("/foo ", "  bar  "));
-
     // Redundant separator must be trimmed.
     assertEquals("/foo/bar", PathUtils.concatPath("/foo/", "bar//"));
 
@@ -122,6 +120,52 @@ public final class PathUtilsTest {
     // Header
     assertEquals(Constants.HEADER + "host:port/foo/bar",
         PathUtils.concatPath(Constants.HEADER + "host:port", "/foo", "bar"));
+  }
+
+  /**
+   * Tests the {@link PathUtils#findLowestCommonAncestor(Collection)} method.
+   */
+  @Test
+  public void findLowestCommonAncestor() {
+    assertNull(PathUtils.findLowestCommonAncestor(null));
+    assertNull(PathUtils.findLowestCommonAncestor(Collections.EMPTY_LIST));
+
+    ArrayList<AlluxioURI> paths = new ArrayList<>();
+
+    paths.add(new AlluxioURI("/"));
+    assertEquals("/", PathUtils.findLowestCommonAncestor(paths).getPath());
+
+    paths.clear();
+    paths.add(new AlluxioURI("/a"));
+    assertEquals("/a", PathUtils.findLowestCommonAncestor(paths).getPath());
+
+    paths.add(new AlluxioURI("/a/b"));
+    assertEquals("/a", PathUtils.findLowestCommonAncestor(paths).getPath());
+
+    paths.clear();
+    paths.add(new AlluxioURI("/a/c"));
+    paths.add(new AlluxioURI("/a/d/"));
+    assertEquals("/a", PathUtils.findLowestCommonAncestor(paths).getPath());
+
+    paths.add(new AlluxioURI("/b/a/"));
+    assertEquals("/", PathUtils.findLowestCommonAncestor(paths).getPath());
+
+    paths.clear();
+    paths.add(new AlluxioURI("/a/b/c"));
+    paths.add(new AlluxioURI("/a/b/d"));
+    paths.add(new AlluxioURI("/a/b/e"));
+    assertEquals("/a/b", PathUtils.findLowestCommonAncestor(paths).getPath());
+
+    paths.clear();
+    String prefix = "/a/b/c";
+    for (int i = 0; i < 10; i++) {
+      for (int j = 0; j < 10; j++) {
+        for (int k = 0; k < 10; k++) {
+          paths.add(new AlluxioURI(String.format("%s/%d/%d/%d", prefix, i, j, k)));
+        }
+      }
+    }
+    assertEquals(prefix, PathUtils.findLowestCommonAncestor(paths).getPath());
   }
 
   /**
@@ -170,7 +214,7 @@ public final class PathUtilsTest {
   @Test
   public void getPathComponentsException() throws InvalidPathException {
     mException.expect(InvalidPathException.class);
-    PathUtils.getPathComponents("/\\   foo / bar");
+    PathUtils.getPathComponents("");
   }
 
   /**
@@ -326,8 +370,6 @@ public final class PathUtilsTest {
     ArrayList<String> invalidPaths = new ArrayList<>();
     invalidPaths.add(null);
     invalidPaths.add("");
-    invalidPaths.add(" /");
-    invalidPaths.add("/ ");
     for (String invalidPath : invalidPaths) {
       try {
         PathUtils.validatePath(invalidPath);

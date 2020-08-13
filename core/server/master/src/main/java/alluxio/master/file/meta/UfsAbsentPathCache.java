@@ -12,11 +12,13 @@
 package alluxio.master.file.meta;
 
 import alluxio.AlluxioURI;
-import alluxio.Configuration;
-import alluxio.PropertyKey;
+import alluxio.conf.ServerConfiguration;
+import alluxio.conf.PropertyKey;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+
+import java.util.List;
 
 /**
  * Cache for recording information about paths that are not present in UFS.
@@ -27,8 +29,9 @@ public interface UfsAbsentPathCache {
    * components which do and do not exist in the UFS, and updates the cache accordingly.
    *
    * @param path the path to process for the cache
+   * @param prefixInodes the existing inodes for the path prefix
    */
-  void process(AlluxioURI path);
+  void process(AlluxioURI path, List<Inode> prefixInodes);
 
   /**
    * Processes the given path that already exists. This will sequentially walk down the path and
@@ -56,7 +59,7 @@ public interface UfsAbsentPathCache {
     private Factory() {} // prevent instantiation
 
     public static UfsAbsentPathCache create(MountTable mountTable) {
-      int numThreads = Configuration.getInt(PropertyKey.MASTER_UFS_PATH_CACHE_THREADS);
+      int numThreads = ServerConfiguration.getInt(PropertyKey.MASTER_UFS_PATH_CACHE_THREADS);
       if (numThreads <= 0) {
         LOG.info("UfsAbsentPathCache is disabled. {}: {}",
             PropertyKey.MASTER_UFS_PATH_CACHE_THREADS, numThreads);

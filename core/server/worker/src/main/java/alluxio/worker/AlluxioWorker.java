@@ -11,14 +11,21 @@
 
 package alluxio.worker;
 
-import alluxio.Constants;
+import alluxio.conf.ServerConfiguration;
 import alluxio.ProcessUtils;
-import alluxio.PropertyKey;
+import alluxio.conf.PropertyKey;
 import alluxio.RuntimeConstants;
+import alluxio.master.MasterInquireClient;
+import alluxio.retry.RetryUtils;
+import alluxio.security.user.ServerUserState;
+import alluxio.util.CommonUtils;
 import alluxio.util.ConfigurationUtils;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+
+import java.io.IOException;
+import java.net.InetSocketAddress;
 
 import javax.annotation.concurrent.ThreadSafe;
 
@@ -41,17 +48,35 @@ public final class AlluxioWorker {
       System.exit(-1);
     }
 
-    if (!ConfigurationUtils.masterHostConfigured()) {
-      System.out.println(String.format(
-          "Cannot run alluxio worker; master hostname is not "
-              + "configured. Please modify %s to either set %s or configure zookeeper with "
-              + "%s=true and %s=[comma-separated zookeeper master addresses]",
-          Constants.SITE_PROPERTIES, PropertyKey.MASTER_HOSTNAME.toString(),
-          PropertyKey.ZOOKEEPER_ENABLED.toString(), PropertyKey.ZOOKEEPER_ADDRESS.toString()));
-      System.exit(1);
+    if (!ConfigurationUtils.masterHostConfigured(ServerConfiguration.global())) {
+      ProcessUtils.fatalError(LOG,
+          ConfigurationUtils.getMasterHostNotConfiguredMessage("Alluxio worker"));
     }
 
-    WorkerProcess process = WorkerProcess.Factory.create();
+    CommonUtils.PROCESS_TYPE.set(CommonUtils.ProcessType.WORKER);
+    MasterInquireClient masterInquireClient =
+        MasterInquireClient.Factory.create(ServerConfiguration.global(), ServerUserState.global());
+    try {
+      RetryUtils.retry("load cluster default configuration with master", () -> {
+        InetSocketAddress masterAddress = masterInquireClient.getPrimaryRpcAddress();
+        ServerConfiguration.loadWorkerClusterDefaults(masterAddress);
+      }, RetryUtils.defaultWorkerMasterClientRetry(
+          ServerConfiguration.getDuration(PropertyKey.WORKER_MASTER_CONNECT_RETRY_TIMEOUT)));
+    } catch (IOException e) {
+      ProcessUtils.fatalError(LOG,
+          "Failed to load cluster default configuration for worker. Please make sure that Alluxio "
+              + "master is running: %s", e.toString());
+    }
+    WorkerProcess process;
+    try {
+      process = WorkerProcess.Factory.create();
+    } catch (Throwable t) {
+      ProcessUtils.fatalError(LOG, t, "Failed to create worker process");
+      // fatalError will exit, so we shouldn't reach here.
+      throw t;
+    }
+
+    ProcessUtils.stopProcessOnShutdown(process);
     ProcessUtils.run(process);
   }
 

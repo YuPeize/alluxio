@@ -11,12 +11,17 @@
 
 package alluxio.wire;
 
+import alluxio.Constants;
 import alluxio.annotation.PublicApi;
+import alluxio.wire.TieredIdentity.LocalityTier;
 
+import com.google.common.base.MoreObjects;
 import com.google.common.base.Objects;
 import com.google.common.base.Preconditions;
+import io.swagger.annotations.ApiModelProperty;
 
 import java.io.Serializable;
+import java.util.Arrays;
 
 import javax.annotation.concurrent.NotThreadSafe;
 
@@ -26,13 +31,15 @@ import javax.annotation.concurrent.NotThreadSafe;
 @PublicApi
 @NotThreadSafe
 public final class WorkerNetAddress implements Serializable {
-  private static final long serialVersionUID = 5822347646342091434L;
+  private static final long serialVersionUID = 0L;
 
   private String mHost = "";
+  private String mContainerHost = "";
   private int mRpcPort;
   private int mDataPort;
   private int mWebPort;
   private String mDomainSocketPath = "";
+  private TieredIdentity mTieredIdentity;
 
   /**
    * Creates a new instance of {@link WorkerNetAddress}.
@@ -40,28 +47,26 @@ public final class WorkerNetAddress implements Serializable {
   public WorkerNetAddress() {}
 
   /**
-   * Creates a new instance of {@link WorkerNetAddress} from thrift representation.
-   *
-   * @param workerNetAddress the thrift net address
-   */
-  protected WorkerNetAddress(alluxio.thrift.WorkerNetAddress workerNetAddress) {
-    mHost = workerNetAddress.getHost();
-    mRpcPort = workerNetAddress.getRpcPort();
-    mDataPort = workerNetAddress.getDataPort();
-    mWebPort = workerNetAddress.getWebPort();
-    mDomainSocketPath = workerNetAddress.getDomainSocketPath();
-  }
-
-  /**
    * @return the host of the worker
    */
+  @ApiModelProperty(value = "Host name of the worker")
   public String getHost() {
     return mHost;
   }
 
   /**
+   * @return the container host of the worker, default to empty string if the worker
+   * is not in a container
+   */
+  @ApiModelProperty(value = "Host name of the physical node if running in a container")
+  public String getContainerHost() {
+    return mContainerHost;
+  }
+
+  /**
    * @return the RPC port
    */
+  @ApiModelProperty(value = "Port of the worker's Rpc server for metadata operations")
   public int getRpcPort() {
     return mRpcPort;
   }
@@ -69,6 +74,7 @@ public final class WorkerNetAddress implements Serializable {
   /**
    * @return the data port
    */
+  @ApiModelProperty(value = "Port of the worker's server for data operations")
   public int getDataPort() {
     return mDataPort;
   }
@@ -76,6 +82,7 @@ public final class WorkerNetAddress implements Serializable {
   /**
    * @return the web port
    */
+  @ApiModelProperty(value = "Port which exposes the worker's web UI")
   public int getWebPort() {
     return mWebPort;
   }
@@ -83,8 +90,20 @@ public final class WorkerNetAddress implements Serializable {
   /**
    * @return the domain socket path
    */
+  @ApiModelProperty(value = "The domain socket path used by the worker, disabled if empty")
   public String getDomainSocketPath() {
     return mDomainSocketPath;
+  }
+
+  /**
+   * @return the tiered identity
+   */
+  @ApiModelProperty(value = "The worker's tier identity")
+  public TieredIdentity getTieredIdentity() {
+    if (mTieredIdentity != null) {
+      return mTieredIdentity;
+    }
+    return new TieredIdentity(Arrays.asList(new LocalityTier(Constants.LOCALITY_NODE, mHost)));
   }
 
   /**
@@ -94,6 +113,16 @@ public final class WorkerNetAddress implements Serializable {
   public WorkerNetAddress setHost(String host) {
     Preconditions.checkNotNull(host, "host");
     mHost = host;
+    return this;
+  }
+
+  /**
+   * @param containerHost the host of node, if running in a container
+   * @return the worker net address
+   */
+  public WorkerNetAddress setContainerHost(String containerHost) {
+    Preconditions.checkNotNull(containerHost, "containerHost");
+    mContainerHost = containerHost;
     return this;
   }
 
@@ -134,11 +163,12 @@ public final class WorkerNetAddress implements Serializable {
   }
 
   /**
-   * @return a net address of thrift construct
+   * @param tieredIdentity the tiered identity
+   * @return the worker net address
    */
-  protected alluxio.thrift.WorkerNetAddress toThrift() {
-    return new alluxio.thrift.WorkerNetAddress(mHost, mRpcPort, mDataPort, mWebPort,
-        mDomainSocketPath);
+  public WorkerNetAddress setTieredIdentity(TieredIdentity tieredIdentity) {
+    mTieredIdentity = tieredIdentity;
+    return this;
   }
 
   @Override
@@ -150,19 +180,31 @@ public final class WorkerNetAddress implements Serializable {
       return false;
     }
     WorkerNetAddress that = (WorkerNetAddress) o;
-    return mHost.equals(that.mHost) && mRpcPort == that.mRpcPort && mDataPort == that.mDataPort
-        && mWebPort == that.mWebPort && mDomainSocketPath.equals(that.mDomainSocketPath);
+    return mHost.equals(that.mHost)
+        && mContainerHost.equals(that.mContainerHost)
+        && mRpcPort == that.mRpcPort
+        && mDataPort == that.mDataPort
+        && mWebPort == that.mWebPort
+        && mDomainSocketPath.equals(that.mDomainSocketPath)
+        && Objects.equal(mTieredIdentity, that.mTieredIdentity);
   }
 
   @Override
   public int hashCode() {
-    return Objects.hashCode(mHost, mDataPort, mRpcPort, mWebPort, mDomainSocketPath);
+    return Objects.hashCode(mHost, mContainerHost, mDataPort, mRpcPort, mWebPort,
+        mDomainSocketPath, mTieredIdentity);
   }
 
   @Override
   public String toString() {
-    return Objects.toStringHelper(this).add("host", mHost).add("rpcPort", mRpcPort)
-        .add("dataPort", mDataPort).add("webPort", mWebPort)
-        .add("domainSocketPath", mDomainSocketPath).toString();
+    return MoreObjects.toStringHelper(this)
+        .add("host", mHost)
+        .add("containerHost", mContainerHost)
+        .add("rpcPort", mRpcPort)
+        .add("dataPort", mDataPort)
+        .add("webPort", mWebPort)
+        .add("domainSocketPath", mDomainSocketPath)
+        .add("tieredIdentity", mTieredIdentity)
+        .toString();
   }
 }

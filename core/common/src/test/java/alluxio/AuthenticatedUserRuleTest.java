@@ -11,10 +11,12 @@
 
 package alluxio;
 
+import static org.junit.Assert.assertEquals;
+
+import alluxio.conf.InstancedConfiguration;
 import alluxio.security.authentication.AuthenticatedClientUser;
 
 import org.junit.After;
-import org.junit.Assert;
 import org.junit.Test;
 import org.junit.runners.model.Statement;
 
@@ -26,12 +28,14 @@ public final class AuthenticatedUserRuleTest {
   private static final String RULE_USER = "rule-user";
   private static final String OUTSIDE_RULE_USER = "outside-rule-user";
 
+  private InstancedConfiguration mConfiguration = ConfigurationTestUtils.defaults();
+
   private final Statement mStatement = new Statement() {
     @Override
     public void evaluate() throws Throwable {
-      Assert.assertEquals(RULE_USER, AuthenticatedClientUser.get().getName());
+      assertEquals(RULE_USER, AuthenticatedClientUser.get(mConfiguration).getName());
       AuthenticatedClientUser.set(TESTCASE_USER);
-      Assert.assertEquals(TESTCASE_USER, AuthenticatedClientUser.get().getName());
+      assertEquals(TESTCASE_USER, AuthenticatedClientUser.get(mConfiguration).getName());
     }
   };
 
@@ -43,14 +47,14 @@ public final class AuthenticatedUserRuleTest {
   @Test
   public void userSetBeforeRule() throws Throwable {
     AuthenticatedClientUser.set(OUTSIDE_RULE_USER);
-    new AuthenticatedUserRule(RULE_USER).apply(mStatement, null).evaluate();
-    Assert.assertEquals(OUTSIDE_RULE_USER, AuthenticatedClientUser.get().getName());
+    new AuthenticatedUserRule(RULE_USER, mConfiguration).apply(mStatement, null).evaluate();
+    assertEquals(OUTSIDE_RULE_USER, AuthenticatedClientUser.get(mConfiguration).getName());
   }
 
   @Test
   public void noUserBeforeRule() throws Throwable {
     AuthenticatedClientUser.remove();
-    new AuthenticatedUserRule(RULE_USER).apply(mStatement, null).evaluate();
-    Assert.assertEquals(null, AuthenticatedClientUser.get());
+    new AuthenticatedUserRule(RULE_USER, mConfiguration).apply(mStatement, null).evaluate();
+    assertEquals(null, AuthenticatedClientUser.get(mConfiguration));
   }
 }

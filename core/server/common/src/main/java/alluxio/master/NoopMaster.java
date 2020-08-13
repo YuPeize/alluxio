@@ -12,13 +12,11 @@
 package alluxio.master;
 
 import alluxio.Server;
-import alluxio.exception.ExceptionMessage;
-import alluxio.proto.journal.Journal.JournalEntry;
+import alluxio.grpc.GrpcService;
+import alluxio.grpc.ServiceType;
+import alluxio.master.journal.JournalContext;
+import alluxio.master.journal.NoopJournaled;
 
-import org.apache.thrift.TProcessor;
-
-import java.io.IOException;
-import java.util.Iterator;
 import java.util.Map;
 import java.util.Set;
 
@@ -26,7 +24,7 @@ import java.util.Set;
  * Master implementation that does nothing. This is useful for testing and for situations where we
  * don't want to run a real master, e.g. when formatting the journal.
  */
-public class NoopMaster implements Master {
+public class NoopMaster implements Master, NoopJournaled {
   private final String mName;
 
   /**
@@ -46,39 +44,34 @@ public class NoopMaster implements Master {
   }
 
   @Override
-  public Set<Class<? extends Server>> getDependencies() {
-    return null;
-  }
-
-  @Override
   public String getName() {
     return mName;
   }
 
   @Override
-  public Map<String, TProcessor> getServices() {
+  public Set<Class<? extends Server>> getDependencies() {
     return null;
   }
 
   @Override
-  public void start(Boolean options) throws IOException {
-  }
-
-  @Override
-  public void stop() throws IOException {
-  }
-
-  @Override
-  public Iterator<JournalEntry> getJournalEntryIterator() {
+  public Map<ServiceType, GrpcService> getServices() {
     return null;
   }
 
   @Override
-  public void processJournalEntry(JournalEntry entry) throws IOException {
-    throw new IOException(ExceptionMessage.UNEXPECTED_JOURNAL_ENTRY.getMessage(entry));
+  public void start(Boolean options) {
   }
 
   @Override
-  public void resetState() {
+  public void stop() {
+  }
+
+  @Override
+  public void close() {
+  }
+
+  @Override
+  public JournalContext createJournalContext() {
+    throw new IllegalStateException("Cannot create journal contexts for NoopMaster");
   }
 }

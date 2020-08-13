@@ -11,6 +11,7 @@
 
 package alluxio;
 
+import alluxio.conf.InstancedConfiguration;
 import alluxio.security.User;
 import alluxio.security.authentication.AuthenticatedClientUser;
 
@@ -21,22 +22,27 @@ import javax.annotation.concurrent.NotThreadSafe;
  * It sets {@link alluxio.security.authentication.AuthenticatedClientUser}
  * to the specified user name during the lifetime
  * of this rule. Note: setting the user only takes effect within the caller thread.
+ *
+ * NOTE: If this rule is used in conjunction with LocalAlluxioClusterResource, it must be ordered to
+ * be second within a RuleChain.
  */
 @NotThreadSafe
 public final class AuthenticatedUserRule extends AbstractResourceRule {
   private final String mUser;
   private User mPreviousUser;
+  private final InstancedConfiguration mConfiguration;
 
   /**
    * @param user the user name to set as authenticated user
    */
-  public AuthenticatedUserRule(String user) {
+  public AuthenticatedUserRule(String user, InstancedConfiguration conf) {
     mUser = user;
+    mConfiguration = conf;
   }
 
   @Override
   protected void before() throws Exception {
-    mPreviousUser = AuthenticatedClientUser.get();
+    mPreviousUser = AuthenticatedClientUser.get(mConfiguration);
     AuthenticatedClientUser.set(mUser);
   }
 

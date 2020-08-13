@@ -11,13 +11,15 @@
 
 package alluxio.cli.extensions.command;
 
-import alluxio.Configuration;
+import alluxio.conf.AlluxioConfiguration;
+import alluxio.conf.ServerConfiguration;
 import alluxio.Constants;
-import alluxio.PropertyKey;
-import alluxio.cli.AbstractCommand;
-import alluxio.cli.extensions.ExtensionsShellUtils;
+import alluxio.conf.PropertyKey;
+import alluxio.cli.Command;
+import alluxio.cli.CommandUtils;
 import alluxio.exception.ExceptionMessage;
 import alluxio.exception.status.InvalidArgumentException;
+import alluxio.util.ConfigurationUtils;
 import alluxio.util.ShellUtils;
 import alluxio.util.io.PathUtils;
 
@@ -35,7 +37,7 @@ import javax.annotation.concurrent.ThreadSafe;
  * Uninstall an extension.
  */
 @ThreadSafe
-public final class UninstallCommand extends AbstractCommand {
+public final class UninstallCommand implements Command {
   private static final Logger LOG = LoggerFactory.getLogger(UninstallCommand.class);
 
   /**
@@ -46,10 +48,6 @@ public final class UninstallCommand extends AbstractCommand {
   @Override
   public String getCommandName() {
     return "uninstall";
-  }
-
-  protected int getNumOfArgs() {
-    return 1;
   }
 
   @Override
@@ -65,9 +63,10 @@ public final class UninstallCommand extends AbstractCommand {
   @Override
   public int run(CommandLine cl) {
     String uri = cl.getArgs()[0];
-    String extensionsDir = Configuration.get(PropertyKey.EXTENSIONS_DIR);
+    AlluxioConfiguration conf = ServerConfiguration.global();
+    String extensionsDir = conf.get(PropertyKey.EXTENSIONS_DIR);
     List<String> failedHosts = new ArrayList<>();
-    for (String host : ExtensionsShellUtils.getServerHostnames()) {
+    for (String host : ConfigurationUtils.getServerHostnames(conf)) {
       try {
         LOG.info("Attempting to uninstall extension on host {}", host);
         String rmCmd = String.format("ssh %s %s rm %s", ShellUtils.COMMON_SSH_OPTS, host,
@@ -92,9 +91,9 @@ public final class UninstallCommand extends AbstractCommand {
   }
 
   @Override
-  protected void validateArgs(String... args) throws InvalidArgumentException {
-    super.validateArgs(args);
-
+  public void validateArgs(CommandLine cl) throws InvalidArgumentException {
+    String[] args = cl.getArgs();
+    CommandUtils.checkNumOfArgsEquals(this, cl, 1);
     if (args[0] == null) {
       throw new InvalidArgumentException(
           ExceptionMessage.INVALID_ARGS_NULL.getMessage(getCommandName()));

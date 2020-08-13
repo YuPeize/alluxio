@@ -13,6 +13,7 @@ package alluxio.wire;
 
 import alluxio.annotation.PublicApi;
 
+import com.google.common.base.MoreObjects;
 import com.google.common.base.Objects;
 import com.google.common.base.Preconditions;
 
@@ -31,22 +32,12 @@ public final class BlockLocation implements Serializable {
   private long mWorkerId;
   private WorkerNetAddress mWorkerAddress = new WorkerNetAddress();
   private String mTierAlias = "";
+  private String mMediumType = "";
 
   /**
    * Creates a new instance of {@link BlockLocation}.
    */
   public BlockLocation() {}
-
-  /**
-   * Creates a new instance of {@link BlockLocation} from a thrift representation.
-   *
-   * @param blockLocation the thrift representation of a block location
-   */
-  protected BlockLocation(alluxio.thrift.BlockLocation blockLocation) {
-    mWorkerId = blockLocation.getWorkerId();
-    mWorkerAddress = new WorkerNetAddress(blockLocation.getWorkerAddress());
-    mTierAlias = blockLocation.getTierAlias();
-  }
 
   /**
    * @return the worker id
@@ -67,6 +58,13 @@ public final class BlockLocation implements Serializable {
    */
   public String getTierAlias() {
     return mTierAlias;
+  }
+
+  /**
+   * @return the medium type
+   */
+  public String getMediumType() {
+    return mMediumType;
   }
 
   /**
@@ -99,10 +97,14 @@ public final class BlockLocation implements Serializable {
   }
 
   /**
-   * @return thrift representation of the block location
+   *
+   * @param mediumType the medium type to use
+   * @return the block location
    */
-  protected alluxio.thrift.BlockLocation toThrift() {
-    return new alluxio.thrift.BlockLocation(mWorkerId, mWorkerAddress.toThrift(), mTierAlias);
+  public BlockLocation setMediumType(String mediumType) {
+    Preconditions.checkNotNull(mediumType, "mediumType");
+    mMediumType = mediumType;
+    return this;
   }
 
   @Override
@@ -115,17 +117,21 @@ public final class BlockLocation implements Serializable {
     }
     BlockLocation that = (BlockLocation) o;
     return mWorkerId == that.mWorkerId && mWorkerAddress.equals(that.mWorkerAddress)
-        && mTierAlias.equals(that.mTierAlias);
+        && mTierAlias.equals(that.mTierAlias) && mMediumType.equals(that.mMediumType);
   }
 
   @Override
   public int hashCode() {
-    return Objects.hashCode(mWorkerId, mWorkerAddress, mTierAlias);
+    return Objects.hashCode(mWorkerId, mWorkerAddress, mTierAlias, mMediumType);
   }
 
   @Override
   public String toString() {
-    return Objects.toStringHelper(this).add("workerId", mWorkerId).add("address", mWorkerAddress)
-        .add("tierAlias", mTierAlias).toString();
+    return MoreObjects.toStringHelper(this)
+        .add("workerId", mWorkerId)
+        .add("address", mWorkerAddress)
+        .add("tierAlias", mTierAlias)
+        .add("mediumType", mMediumType)
+        .toString();
   }
 }

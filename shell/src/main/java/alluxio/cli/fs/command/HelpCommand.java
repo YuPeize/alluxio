@@ -11,15 +11,17 @@
 
 package alluxio.cli.fs.command;
 
+import alluxio.annotation.PublicApi;
 import alluxio.cli.Command;
-import alluxio.client.file.FileSystem;
-import alluxio.exception.AlluxioException;
+import alluxio.cli.CommandUtils;
 import alluxio.cli.fs.FileSystemShellUtils;
+import alluxio.client.file.FileSystemContext;
+import alluxio.exception.AlluxioException;
 import alluxio.exception.status.InvalidArgumentException;
 
-import jline.TerminalFactory;
 import org.apache.commons.cli.CommandLine;
 import org.apache.commons.cli.HelpFormatter;
+import org.jline.terminal.TerminalBuilder;
 
 import java.io.IOException;
 import java.io.PrintWriter;
@@ -33,6 +35,7 @@ import javax.annotation.concurrent.ThreadSafe;
  * messages for all supported commands.
  */
 @ThreadSafe
+@PublicApi
 public final class HelpCommand extends AbstractFileSystemCommand {
   private static final HelpFormatter HELP_FORMATTER = new HelpFormatter();
 
@@ -45,8 +48,16 @@ public final class HelpCommand extends AbstractFileSystemCommand {
   public static void printCommandInfo(Command command, PrintWriter pw) {
     String description =
         String.format("%s: %s", command.getCommandName(), command.getDescription());
-    int width = TerminalFactory.get().getWidth();
-
+    int width = 80;
+    try {
+      width = TerminalBuilder.terminal().getWidth();
+    } catch (Exception e) {
+      // In case the terminal builder failed to decide terminal type, use default width
+    }
+    // Use default value if terminal width is assigned 0
+    if (width == 0) {
+      width = 80;
+    }
     HELP_FORMATTER.printWrapped(pw, width, description);
     HELP_FORMATTER.printUsage(pw, width, command.getUsage());
     if (command.getOptions().getOptions().size() > 0) {
@@ -56,10 +67,10 @@ public final class HelpCommand extends AbstractFileSystemCommand {
   }
 
   /**
-   * @param fs the filesystem of Alluxio
+   * @param fsContext the filesystem of Alluxio
    */
-  public HelpCommand(FileSystem fs) {
-    super(fs);
+  public HelpCommand(FileSystemContext fsContext) {
+    super(fsContext);
   }
 
   @Override
@@ -71,7 +82,7 @@ public final class HelpCommand extends AbstractFileSystemCommand {
   public int run(CommandLine cl) throws AlluxioException, IOException {
     String[] args = cl.getArgs();
     SortedSet<String> sortedCmds;
-    Map<String, Command> commands = FileSystemShellUtils.loadCommands(mFileSystem);
+    Map<String, Command> commands = FileSystemShellUtils.loadCommands(mFsContext);
     try (PrintWriter pw = new PrintWriter(System.out)) {
       if (args.length == 0) {
         // print help messages for all supported commands.
@@ -94,7 +105,7 @@ public final class HelpCommand extends AbstractFileSystemCommand {
 
   @Override
   public String getUsage() {
-    return "help <command>";
+    return "help [<command>]";
   }
 
   @Override
@@ -104,11 +115,7 @@ public final class HelpCommand extends AbstractFileSystemCommand {
   }
 
   @Override
-  public void validateArgs(String... args) throws InvalidArgumentException {
-  }
-
-  @Override
-  protected int getNumOfArgs() {
-    return 1;
+  public void validateArgs(CommandLine cl) throws InvalidArgumentException {
+    CommandUtils.checkNumOfArgsNoMoreThan(this, cl, 1);
   }
 }

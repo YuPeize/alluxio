@@ -11,6 +11,8 @@
 
 package alluxio.worker.block.io;
 
+import alluxio.network.protocol.databuffer.DataBuffer;
+
 import io.netty.buffer.ByteBuf;
 
 import java.io.ByteArrayOutputStream;
@@ -23,7 +25,7 @@ import java.nio.channels.WritableByteChannel;
 /**
  * A simple {@link BlockWriter} to use for testing purposes.
  */
-public final class MockBlockWriter implements BlockWriter {
+public final class MockBlockWriter extends BlockWriter {
   private final ByteArrayOutputStream mOutputStream;
   private long mPosition;
 
@@ -56,7 +58,17 @@ public final class MockBlockWriter implements BlockWriter {
     return bytesWritten;
   }
 
-  private GatheringByteChannel getChannel() {
+  @Override
+  public long append(DataBuffer buffer) throws IOException {
+    byte[] bytes = new byte[buffer.readableBytes()];
+    buffer.readBytes(bytes, 0, bytes.length);
+    mOutputStream.write(bytes);
+    mPosition += bytes.length;
+    return bytes.length;
+  }
+
+  @Override
+  public GatheringByteChannel getChannel() {
     return new GatheringByteChannel() {
       WritableByteChannel mChannel = Channels.newChannel(mOutputStream);
 

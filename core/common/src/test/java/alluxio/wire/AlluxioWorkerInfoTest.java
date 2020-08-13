@@ -11,11 +11,11 @@
 
 package alluxio.wire;
 
-import alluxio.CommonTestUtils;
+import static org.junit.Assert.assertEquals;
+
 import alluxio.util.CommonUtils;
 
-import org.codehaus.jackson.map.ObjectMapper;
-import org.junit.Assert;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.Test;
 
 import java.util.ArrayList;
@@ -37,19 +37,19 @@ public final class AlluxioWorkerInfoTest {
 
   @Test
   public void equals() {
-    CommonTestUtils.testEquals(AlluxioMasterInfo.class);
+    alluxio.test.util.CommonUtils.testEquals(AlluxioMasterInfo.class);
   }
 
   private void checkEquality(AlluxioWorkerInfo a, AlluxioWorkerInfo b) {
-    Assert.assertEquals(a.getCapacity(), b.getCapacity());
-    Assert.assertEquals(a.getConfiguration(), b.getConfiguration());
-    Assert.assertEquals(a.getMetrics(), b.getMetrics());
-    Assert.assertEquals(a.getRpcAddress(), b.getRpcAddress());
-    Assert.assertEquals(a.getStartTimeMs(), b.getStartTimeMs());
-    Assert.assertEquals(a.getTierCapacity(), b.getTierCapacity());
-    Assert.assertEquals(a.getUptimeMs(), b.getUptimeMs());
-    Assert.assertEquals(a.getVersion(), b.getVersion());
-    Assert.assertEquals(a, b);
+    assertEquals(a.getCapacity(), b.getCapacity());
+    assertEquals(a.getConfiguration(), b.getConfiguration());
+    assertEquals(a.getMetrics(), b.getMetrics());
+    assertEquals(a.getRpcAddress(), b.getRpcAddress());
+    assertEquals(a.getStartTimeMs(), b.getStartTimeMs());
+    assertEquals(a.getTierCapacity(), b.getTierCapacity());
+    assertEquals(a.getUptimeMs(), b.getUptimeMs());
+    assertEquals(a.getVersion(), b.getVersion());
+    assertEquals(a, b);
   }
 
   private static AlluxioWorkerInfo createRandom() {

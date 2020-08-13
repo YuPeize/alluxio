@@ -11,11 +11,17 @@
 
 package alluxio.master.journal.noop;
 
+import alluxio.master.Master;
+import alluxio.master.journal.CatchupFuture;
 import alluxio.master.journal.Journal;
-import alluxio.master.journal.JournalEntryStateMachine;
 import alluxio.master.journal.JournalSystem;
+import alluxio.master.journal.sink.JournalSink;
 
-import java.io.IOException;
+import java.util.Collections;
+import java.util.Map;
+import java.util.Set;
+
+import javax.annotation.Nullable;
 
 /**
  * Journal system which doesn't do anything.
@@ -27,24 +33,70 @@ public final class NoopJournalSystem implements JournalSystem {
   public NoopJournalSystem() {}
 
   @Override
-  public Journal createJournal(JournalEntryStateMachine master) {
+  public Journal createJournal(Master master) {
     return new NoopJournal();
   }
 
   @Override
-  public void setMode(Mode mode) {}
+  public void gainPrimacy() {
+    return;
+  }
 
   @Override
-  public boolean isFormatted() throws IOException {
+  public void losePrimacy() {
+    return;
+  }
+
+  @Override
+  public void suspend() {
+    return;
+  }
+
+  @Override
+  public void resume() {
+    return;
+  }
+
+  @Override
+  public CatchupFuture catchup(Map<String, Long> journalSequenceNumbers) {
+    return CatchupFuture.completed();
+  }
+
+  @Override
+  public Map<String, Long> getCurrentSequenceNumbers() {
+    return Collections.emptyMap();
+  }
+
+  @Override
+  public boolean isFormatted() {
     return true;
   }
 
   @Override
-  public void format() throws IOException {}
+  public void addJournalSink(Master master, JournalSink journalSink) {}
 
   @Override
-  public void start() throws InterruptedException, IOException {}
+  public void removeJournalSink(Master master, JournalSink journalSink) {}
 
   @Override
-  public void stop() throws InterruptedException, IOException {}
+  public Set<JournalSink> getJournalSinks(@Nullable Master master) {
+    return Collections.emptySet();
+  }
+
+  @Override
+  public boolean isEmpty() {
+    return true;
+  }
+
+  @Override
+  public void format() {}
+
+  @Override
+  public void start() {}
+
+  @Override
+  public void stop() {}
+
+  @Override
+  public void checkpoint() {}
 }

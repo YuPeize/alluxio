@@ -11,42 +11,52 @@
 
 package alluxio;
 
-import alluxio.util.io.PathUtils;
-
 import javax.annotation.concurrent.ThreadSafe;
 
 /**
  * System constants that are determined during runtime.
  */
+// Note: PropertyKey depends on this class, so this class shouldn't depend on any classes that have
+// a dependency on PropertyKey.
 @ThreadSafe
 public final class RuntimeConstants {
+  /** The version of this Alluxio instance. */
+  public static final String VERSION = ProjectConstants.VERSION;
+
   static {
-    String version = Configuration.get(PropertyKey.VERSION);
-    VERSION = version;
-    if (version.endsWith("SNAPSHOT")) {
-      ALLUXIO_DOCS_URL = "http://www.alluxio.org/docs/master";
+    if (VERSION.endsWith("SNAPSHOT")) {
+      ALLUXIO_DOCS_URL = "https://docs.alluxio.io/os/user/edge";
+      ALLUXIO_JAVADOC_URL = "https://docs.alluxio.io/os/javadoc/edge";
     } else {
-      String[] majorMinor = version.split("\\.");
-      ALLUXIO_DOCS_URL = String.format(
-          "http://www.alluxio.org/docs/%s.%s", majorMinor[0], majorMinor[1]);
+      String[] majorMinor = VERSION.split("\\.");
+      ALLUXIO_DOCS_URL =
+          String.format("https://docs.alluxio.io/os/user/%s.%s", majorMinor[0], majorMinor[1]);
+      ALLUXIO_JAVADOC_URL =
+          String.format("https://docs.alluxio.io/os/javadoc/%s.%s", majorMinor[0], majorMinor[1]);
     }
   }
 
-  /** The version of this Alluxio instance. */
-  public static final String VERSION;
-
   /** The relative path to the Alluxio target jar. */
-  public static final String ALLUXIO_JAR =
-      "target/alluxio-" + VERSION + "-jar-with-dependencies.jar";
+  public static final String ALLUXIO_JAR = "target/alluxio-" + VERSION
+      + "-jar-with-dependencies.jar";
 
   /** The URL of Alluxio documentation for this version on project web site. */
   public static final String ALLUXIO_DOCS_URL;
 
-  /** The URL of Alluxio debugging documentation. */
-  public static final String ALLUXIO_DEBUG_DOCS_URL = ALLUXIO_DOCS_URL + "/en/Debugging-Guide.html";
+  /** The URL of Alluxio javadoc documentation. */
+  public static final String ALLUXIO_JAVADOC_URL;
 
-  public static final String LIB_DIR =
-      PathUtils.concatPath(Configuration.get(PropertyKey.HOME), "lib");
+  /** The URL of Alluxio debugging documentation. */
+  public static final String ALLUXIO_DEBUG_DOCS_URL = ALLUXIO_DOCS_URL
+      + "/en/operation/Troubleshooting.html";
+
+  /** The URL of Alluxio 1.x to 2.x upgrade documentation. */
+  public static final String ALLUXIO_2X_UPGRADE_DOC_URL = ALLUXIO_DOCS_URL
+      + "/en/operation/2.x-Upgrade.html";
+
+  /** The URL of Alluxio security documentation. */
+  public static final String ALLUXIO_SECURITY_DOCS_URL = ALLUXIO_DOCS_URL
+      + "/en/operation/Security.html";
 
   private RuntimeConstants() {} // prevent instantiation
 }

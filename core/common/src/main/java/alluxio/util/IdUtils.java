@@ -11,6 +11,8 @@
 
 package alluxio.util;
 
+import alluxio.conf.AlluxioConfiguration;
+import alluxio.conf.PropertyKey;
 import alluxio.master.block.BlockId;
 
 import org.slf4j.Logger;
@@ -72,10 +74,12 @@ public final class IdUtils {
   }
 
   /**
+   * Generates a positive random number by zero-ing the sign bit.
+   *
    * @return a random long which is guaranteed to be non negative (zero is allowed)
    */
   public static synchronized long getRandomNonNegativeLong() {
-    return Math.abs(sRandom.nextLong());
+    return sRandom.nextLong() & Long.MAX_VALUE;
   }
 
   /**
@@ -90,5 +94,25 @@ public final class IdUtils {
    */
   public static long createMountId() {
     return getRandomNonNegativeLong();
+  }
+
+  /**
+   * @return app suffixed by a positive random long
+   */
+  public static String createFileSystemContextId() {
+    return "app-" + getRandomNonNegativeLong();
+  }
+
+  /**
+   *
+   * @param conf an alluxio configuration with the USER_APP_ID property key
+   * @return a string representing the USER_APP_ID
+   */
+  public static String createOrGetAppIdFromConfig(AlluxioConfiguration conf) {
+    if (conf.isSet(PropertyKey.USER_APP_ID)) {
+      return conf.get(PropertyKey.USER_APP_ID);
+    } else {
+      return IdUtils.createFileSystemContextId();
+    }
   }
 }

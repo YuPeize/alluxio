@@ -11,6 +11,9 @@
 
 package alluxio.underfs;
 
+import java.util.Map;
+
+import javax.annotation.Nullable;
 import javax.annotation.concurrent.NotThreadSafe;
 
 /**
@@ -18,24 +21,95 @@ import javax.annotation.concurrent.NotThreadSafe;
  */
 @NotThreadSafe
 public class UfsFileStatus extends UfsStatus {
+  public static final String INVALID_CONTENT_HASH = "";
+  public static final long UNKNOWN_BLOCK_SIZE = -1;
+
+  protected final String mContentHash;
   protected final long mContentLength;
-  protected final long mLastModifiedTimeMs;
+  protected final long mBlockSize;
 
   /**
    * Creates new instance of {@link UfsFileStatus}.
    *
    * @param name relative path of file
+   * @param contentHash hash of the file contents
+   * @param contentLength in bytes
+   * @param lastModifiedTimeMs UTC time
+   * @param owner of the file
+   * @param group of the file
+   * @param mode of the file
+   * @param xAttr extended attributes, if any
+   * @param blockSize blocksize, -1 if unknown
+   */
+  public UfsFileStatus(String name, String contentHash, long contentLength, long lastModifiedTimeMs,
+      String owner, String group, short mode, @Nullable Map<String, byte[]> xAttr, long blockSize) {
+    super(name, false, owner, group, mode, lastModifiedTimeMs, xAttr);
+    mContentHash = contentHash;
+    mContentLength = contentLength;
+    mBlockSize = blockSize;
+  }
+
+  /**
+   * Creates new instance of {@link UfsFileStatus} without any extended attributes.
+   *
+   * @param name relative path of file
+   * @param contentHash hash of the file contents
+   * @param contentLength in bytes
+   * @param lastModifiedTimeMs UTC time
+   * @param owner of the file
+   * @param group of the file
+   * @param mode of the file
+   * @param blockSize blocksize, -1 if unknown
+   */
+  public UfsFileStatus(String name, String contentHash, long contentLength, long lastModifiedTimeMs,
+      String owner, String group, short mode, long blockSize) {
+    super(name, false, owner, group, mode, lastModifiedTimeMs, /* xattrs */ null);
+    mContentHash = contentHash;
+    mContentLength = contentLength;
+    mBlockSize = blockSize;
+  }
+
+  /**
+   * Creates new instance of {@link UfsFileStatus}.
+   *
+   * @deprecated as of 2.1.0, use
+   * {@link #UfsFileStatus(String, String, long, long, String, String, short, Map, long)}
+   *
+   * @param name relative path of file
+   * @param contentHash hash of the file contents
+   * @param contentLength in bytes
+   * @param lastModifiedTimeMs UTC time
+   * @param owner of the file
+   * @param group of the file
+   * @param mode of the file
+   * @param xAttr extended attributes, if any
+   */
+  @Deprecated
+  public UfsFileStatus(String name, String contentHash, long contentLength, long lastModifiedTimeMs,
+      String owner, String group, short mode, @Nullable Map<String, byte[]> xAttr) {
+    this(name, contentHash, contentLength, lastModifiedTimeMs, owner, group, mode, xAttr,
+        UNKNOWN_BLOCK_SIZE);
+  }
+
+  /**
+   * Creates a new instance of {@link UfsFileStatus} without any extended attributes.
+   *
+   * @deprecated as of 2.1.0, use
+   * {@link #UfsFileStatus(String, String, long, long, String, String, short, long)}.
+   *
+   * @param name relative path of file
+   * @param contentHash hash of the file contents
    * @param contentLength in bytes
    * @param lastModifiedTimeMs UTC time
    * @param owner of the file
    * @param group of the file
    * @param mode of the file
    */
-  public UfsFileStatus(String name, long contentLength, long lastModifiedTimeMs, String owner,
-      String group, short mode) {
-    super(name, false, owner, group, mode);
-    mContentLength = contentLength;
-    mLastModifiedTimeMs = lastModifiedTimeMs;
+  @Deprecated
+  public UfsFileStatus(String name, String contentHash, long contentLength, long lastModifiedTimeMs,
+      String owner, String group, short mode) {
+    this(name, contentHash, contentLength, lastModifiedTimeMs, owner, group, mode, null,
+        UNKNOWN_BLOCK_SIZE);
   }
 
   /**
@@ -45,13 +119,21 @@ public class UfsFileStatus extends UfsStatus {
    */
   public UfsFileStatus(UfsFileStatus status) {
     super(status);
+    mContentHash = status.mContentHash;
     mContentLength = status.mContentLength;
-    mLastModifiedTimeMs = status.mLastModifiedTimeMs;
+    mBlockSize = status.mBlockSize;
   }
 
   @Override
   public UfsFileStatus copy() {
     return new UfsFileStatus(this);
+  }
+
+  /**
+   * @return the hash of the file contents
+   */
+  public String getContentHash() {
+    return mContentHash;
   }
 
   /**
@@ -64,11 +146,17 @@ public class UfsFileStatus extends UfsStatus {
   }
 
   /**
-   * Gets the UTC time of when the indicated path was modified recently in ms.
-   *
-   * @return modification time in milliseconds
+   * @return the block size in bytes, -1 if unknown
    */
-  public long getLastModifiedTime() {
-    return mLastModifiedTimeMs;
+  public long getBlockSize() {
+    return mBlockSize;
+  }
+
+  @Override
+  public String toString() {
+    return toStringHelper()
+        .add("contentHash", mContentHash)
+        .add("contentLength", mContentLength)
+        .toString();
   }
 }

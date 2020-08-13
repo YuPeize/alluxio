@@ -14,17 +14,20 @@ package alluxio.master.block.meta;
 import alluxio.Constants;
 import alluxio.StorageTierAssoc;
 import alluxio.WorkerStorageTierAssoc;
+import alluxio.client.block.options.GetWorkerReportOptions.WorkerInfoField;
+import alluxio.grpc.StorageList;
 import alluxio.util.CommonUtils;
 import alluxio.wire.WorkerInfo;
 import alluxio.wire.WorkerNetAddress;
 
-import com.google.common.base.Objects;
+import com.google.common.base.MoreObjects;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Sets;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -40,6 +43,8 @@ import javax.annotation.concurrent.NotThreadSafe;
 @NotThreadSafe
 public final class MasterWorkerInfo {
   private static final Logger LOG = LoggerFactory.getLogger(MasterWorkerInfo.class);
+  private static final String LIVE_WORKER_STATE = "In Service";
+  private static final String LOST_WORKER_STATE = "Out of Service";
 
   /** Worker's address. */
   private final WorkerNetAddress mWorkerAddress;
@@ -66,6 +71,8 @@ public final class MasterWorkerInfo {
   private Set<Long> mBlocks;
   /** ids of blocks the worker should remove. */
   private Set<Long> mToRemoveBlocks;
+  /** Mapping from tier alias to lost storage paths. */
+  private Map<String, List<String>> mLostStorage;
 
   /**
    * Creates a new instance of {@link MasterWorkerInfo}.
@@ -84,6 +91,7 @@ public final class MasterWorkerInfo {
     mUsedBytesOnTiers = new HashMap<>();
     mBlocks = new HashSet<>();
     mToRemoveBlocks = new HashSet<>();
+    mLostStorage = new HashMap<>();
   }
 
   /**
@@ -172,16 +180,80 @@ public final class MasterWorkerInfo {
   }
 
   /**
-   * @return generated {@link WorkerInfo} for this worker
+   * Adds a new worker lost storage path.
+   *
+   * @param tierAlias the tier alias
+   * @param dirPath the lost storage path
    */
-  public WorkerInfo generateClientWorkerInfo() {
-    return new WorkerInfo()
-        .setId(mId)
-        .setAddress(mWorkerAddress)
-        .setLastContactSec(
-            (int) ((CommonUtils.getCurrentMs() - mLastUpdatedTimeMs) / Constants.SECOND_MS))
-        .setState("In Service").setCapacityBytes(mCapacityBytes).setUsedBytes(mUsedBytes)
-        .setStartTimeMs(mStartTimeMs);
+  public void addLostStorage(String tierAlias, String dirPath) {
+    List<String> paths = mLostStorage.getOrDefault(tierAlias, new ArrayList<>());
+    paths.add(dirPath);
+    mLostStorage.put(tierAlias, paths);
+  }
+
+  /**
+   * Adds new worker lost storage paths.
+   *
+   * @param lostStorage the lost storage to add
+   */
+  public void addLostStorage(Map<String, StorageList> lostStorage) {
+    for (Map.Entry<String, StorageList> entry : lostStorage.entrySet()) {
+      List<String> paths = mLostStorage.getOrDefault(entry.getKey(), new ArrayList<>());
+      paths.addAll(entry.getValue().getStorageList());
+      mLostStorage.put(entry.getKey(), paths);
+    }
+  }
+
+  /**
+   * Gets the selected field information for this worker.
+   *
+   * @param fieldRange the client selected fields
+   * @param isLiveWorker the worker is live or not
+   * @return generated worker information
+   */
+  public WorkerInfo generateWorkerInfo(Set<WorkerInfoField> fieldRange, boolean isLiveWorker) {
+    WorkerInfo info = new WorkerInfo();
+    Set<WorkerInfoField> checkedFieldRange = fieldRange != null ? fieldRange :
+        new HashSet<>(Arrays.asList(WorkerInfoField.values()));
+    for (WorkerInfoField field : checkedFieldRange) {
+      switch (field) {
+        case ADDRESS:
+          info.setAddress(mWorkerAddress);
+          break;
+        case WORKER_CAPACITY_BYTES:
+          info.setCapacityBytes(mCapacityBytes);
+          break;
+        case WORKER_CAPACITY_BYTES_ON_TIERS:
+          info.setCapacityBytesOnTiers(mTotalBytesOnTiers);
+          break;
+        case ID:
+          info.setId(mId);
+          break;
+        case LAST_CONTACT_SEC:
+          info.setLastContactSec(
+              (int) ((CommonUtils.getCurrentMs() - mLastUpdatedTimeMs) / Constants.SECOND_MS));
+          break;
+        case START_TIME_MS:
+          info.setStartTimeMs(mStartTimeMs);
+          break;
+        case STATE:
+          if (isLiveWorker) {
+            info.setState(LIVE_WORKER_STATE);
+          } else {
+            info.setState(LOST_WORKER_STATE);
+          }
+          break;
+        case WORKER_USED_BYTES:
+          info.setUsedBytes(mUsedBytes);
+          break;
+        case WORKER_USED_BYTES_ON_TIERS:
+          info.setUsedBytesOnTiers(mUsedBytesOnTiers);
+          break;
+        default:
+          LOG.warn("Unrecognized worker info field: " + field);
+      }
+    }
+    return info;
   }
 
   /**
@@ -287,11 +359,26 @@ public final class MasterWorkerInfo {
     return freeCapacityBytes;
   }
 
+  /**
+   * @return the map from tier alias to lost storage paths in this worker
+   */
+  public Map<String, List<String>> getLostStorage() {
+    return new HashMap<>(mLostStorage);
+  }
+
+  /**
+   * @return true if this worker has lost storage, false otherwise
+   */
+  public boolean hasLostStorage() {
+    return mLostStorage.size() > 0;
+  }
+
   @Override
   public String toString() {
-    return Objects.toStringHelper(this).add("id", mId).add("workerAddress", mWorkerAddress)
+    return MoreObjects.toStringHelper(this).add("id", mId).add("workerAddress", mWorkerAddress)
         .add("capacityBytes", mCapacityBytes).add("usedBytes", mUsedBytes)
-        .add("lastUpdatedTimeMs", mLastUpdatedTimeMs).add("blocks", mBlocks).toString();
+        .add("lastUpdatedTimeMs", mLastUpdatedTimeMs).add("blocks", mBlocks)
+        .add("lostStorage", mLostStorage).toString();
   }
 
   /**
@@ -318,13 +405,26 @@ public final class MasterWorkerInfo {
   }
 
   /**
+   * Sets the capacity of the worker in bytes.
+   *
+   * @param capacityBytesOnTiers used bytes on each storage tier
+   */
+  public void updateCapacityBytes(Map<String, Long> capacityBytesOnTiers) {
+    mCapacityBytes = 0;
+    mTotalBytesOnTiers = capacityBytesOnTiers;
+    for (long t : mTotalBytesOnTiers.values()) {
+      mCapacityBytes += t;
+    }
+  }
+
+  /**
    * Sets the used space of the worker in bytes.
    *
    * @param usedBytesOnTiers used bytes on each storage tier
    */
   public void updateUsedBytes(Map<String, Long> usedBytesOnTiers) {
     mUsedBytes = 0;
-    mUsedBytesOnTiers = usedBytesOnTiers;
+    mUsedBytesOnTiers = new HashMap<>(usedBytesOnTiers);
     for (long t : mUsedBytesOnTiers.values()) {
       mUsedBytes += t;
     }

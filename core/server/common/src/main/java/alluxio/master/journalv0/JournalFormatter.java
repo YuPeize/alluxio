@@ -11,12 +11,7 @@
 
 package alluxio.master.journalv0;
 
-import alluxio.Configuration;
-import alluxio.PropertyKey;
 import alluxio.proto.journal.Journal.JournalEntry;
-import alluxio.util.CommonUtils;
-
-import com.google.common.base.Throwables;
 
 import java.io.IOException;
 import java.io.InputStream;
@@ -40,13 +35,7 @@ public interface JournalFormatter {
      * @return the created formatter
      */
     public static JournalFormatter create() {
-      try {
-        return CommonUtils.createNewClassInstance(
-            Configuration.<JournalFormatter>getClass(PropertyKey.MASTER_JOURNAL_FORMATTER_CLASS),
-            null, null);
-      } catch (Exception e) {
-        throw Throwables.propagate(e);
-      }
+      return new ProtoBufJournalFormatter();
     }
   }
 

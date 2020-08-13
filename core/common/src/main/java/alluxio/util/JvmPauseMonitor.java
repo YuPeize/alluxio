@@ -11,9 +11,7 @@
 
 package alluxio.util;
 
-import alluxio.PropertyKey;
-import alluxio.Configuration;
-
+import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
@@ -31,6 +29,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicLong;
 
 /**
  * Class to monitor JVM with a daemon thread, the thread sleep period of time
@@ -38,7 +37,7 @@ import java.util.concurrent.TimeUnit;
  * JVM has paused processing. Then log it into different level.
  */
 @NotThreadSafe
-public final class JvmPauseMonitor {
+public class JvmPauseMonitor {
   private static final Log LOG = LogFactory.getLog(JvmPauseMonitor.class);
 
   /** The time to sleep. */
@@ -51,21 +50,29 @@ public final class JvmPauseMonitor {
   private final long mInfoThresholdMs;
 
   /** Times extra sleep time exceed WARN. */
-  private long mWarnTimeExceeded = 0;
+  private final AtomicLong mWarnTimeExceeded = new AtomicLong();
   /** Times extra sleep time exceed INFO. */
-  private long mInfoTimeExceeded = 0;
+  private final AtomicLong mInfoTimeExceeded = new AtomicLong();
   /** Total extra sleep time. */
-  private long mTotalExtraTimeMs = 0;
+  private final AtomicLong mTotalExtraTimeMs = new AtomicLong();
 
   private Thread mJvmMonitorThread;
 
   /**
    * Constructs JvmPauseMonitor.
+   * @param gcSleepIntervalMs The time in milliseconds to sleep for in checking for GC pauses
+   * @param warnThresholdMs when gc pauses exceeds this time in milliseconds log WARN
+   * @param infoThresholdMs when gc pauses exceeds this time in milliseconds log INFO
    */
-  public JvmPauseMonitor() {
-    mGcSleepIntervalMs = Configuration.getMs(PropertyKey.JVM_MONITOR_SLEEP_INTERVAL_MS);
-    mWarnThresholdMs = Configuration.getMs(PropertyKey.JVM_MONITOR_WARN_THRESHOLD_MS);
-    mInfoThresholdMs = Configuration.getMs(PropertyKey.JVM_MONITOR_INFO_THRESHOLD_MS);
+  public JvmPauseMonitor(long gcSleepIntervalMs, long warnThresholdMs, long infoThresholdMs) {
+    Preconditions.checkArgument(gcSleepIntervalMs > 0, "gc sleep interval must be > 0");
+    Preconditions.checkArgument(warnThresholdMs > 0, "warn threshold must be > 0");
+    Preconditions.checkArgument(infoThresholdMs > 0, "info threshold must be > 0");
+    Preconditions.checkArgument(warnThresholdMs > infoThresholdMs,
+        "gc warn threshold must be > gc info threshold");
+    mGcSleepIntervalMs = gcSleepIntervalMs;
+    mWarnThresholdMs = warnThresholdMs;
+    mInfoThresholdMs = infoThresholdMs;
   }
 
   /**
@@ -89,42 +96,35 @@ public final class JvmPauseMonitor {
     } catch (InterruptedException e) {
       Thread.currentThread().interrupt();
     }
-    reset();
-  }
-
-  /**
-   * Resets value of mJvmMonitorThread.
-   */
-  public void reset() {
     mJvmMonitorThread = null;
   }
 
   /**
-   * @return true if thread started,false otherwise
+   * @return true if thread started, false otherwise
    */
   public boolean isStarted() {
-    return mJvmMonitorThread != null;
+    return mJvmMonitorThread != null && mJvmMonitorThread.isAlive();
   }
 
   /**
    * @return time exceeds WARN threshold in milliseconds
    */
   public long getWarnTimeExceeded() {
-    return mWarnTimeExceeded;
+    return mWarnTimeExceeded.get();
   }
 
   /**
    * @return time exceeds INFO threshold in milliseconds
    */
   public long getInfoTimeExceeded() {
-    return mInfoTimeExceeded;
+    return mInfoTimeExceeded.get();
   }
 
   /**
    * @return Total extra time in milliseconds
    */
   public long getTotalExtraTime() {
-    return mTotalExtraTimeMs;
+    return mTotalExtraTimeMs.get();
   }
 
   private String getMemoryInfo() {
@@ -172,11 +172,22 @@ public final class JvmPauseMonitor {
 
   private Map<String, GarbageCollectorMXBean> getGarbageCollectorMXBeans() {
     List<GarbageCollectorMXBean> gcBeanList = ManagementFactory.getGarbageCollectorMXBeans();
-    Map<String, GarbageCollectorMXBean> gcBeanMap = new HashMap();
+    Map<String, GarbageCollectorMXBean> gcBeanMap = new HashMap<>();
     for (GarbageCollectorMXBean gcBean : gcBeanList) {
       gcBeanMap.put(gcBean.getName(), gcBean);
     }
     return gcBeanMap;
+  }
+
+  /**
+   * Sleep this thread for the configured interval. Used indirectly in order to test
+   *
+   * @param ms time to sleep in milliseconds
+   * @throws InterruptedException when the thread's sleep is interrupted
+   */
+  @VisibleForTesting
+  void sleepMillis(long ms) throws InterruptedException {
+    Thread.sleep(ms);
   }
 
   private class GcMonitor extends Thread {
@@ -187,26 +198,26 @@ public final class JvmPauseMonitor {
 
     @Override
     public void run() {
-      Stopwatch sw = new Stopwatch();
+      Stopwatch sw = Stopwatch.createUnstarted();
       Map<String, GarbageCollectorMXBean> gcBeanMapBeforeSleep = getGarbageCollectorMXBeans();
       while (true) {
         sw.reset().start();
         try {
-          Thread.sleep(mGcSleepIntervalMs);
+          sleepMillis(mGcSleepIntervalMs);
         } catch (InterruptedException ie) {
-          LOG.warn(ie.getStackTrace());
+          LOG.warn("JVM pause monitor interrupted during sleep.");
           return;
         }
         long extraTime = sw.elapsed(TimeUnit.MILLISECONDS) - mGcSleepIntervalMs;
-        mTotalExtraTimeMs += extraTime;
+        mTotalExtraTimeMs.addAndGet(extraTime);
         Map<String, GarbageCollectorMXBean> gcBeanMapAfterSleep = getGarbageCollectorMXBeans();
 
         if (extraTime > mWarnThresholdMs) {
-          mInfoTimeExceeded++;
-          mWarnTimeExceeded++;
+          mInfoTimeExceeded.incrementAndGet();
+          mWarnTimeExceeded.incrementAndGet();
           LOG.warn(formatLogString(extraTime, gcBeanMapBeforeSleep, gcBeanMapAfterSleep));
         } else if (extraTime > mInfoThresholdMs) {
-          mInfoTimeExceeded++;
+          mInfoTimeExceeded.incrementAndGet();
           LOG.info(formatLogString(
               extraTime, gcBeanMapBeforeSleep, gcBeanMapAfterSleep));
         }

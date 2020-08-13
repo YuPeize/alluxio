@@ -11,6 +11,9 @@
 
 package alluxio.underfs;
 
+import java.util.Map;
+
+import javax.annotation.Nullable;
 import javax.annotation.concurrent.NotThreadSafe;
 
 /**
@@ -18,6 +21,7 @@ import javax.annotation.concurrent.NotThreadSafe;
  */
 @NotThreadSafe
 public class UfsDirectoryStatus extends UfsStatus {
+
   /**
    * Creates new instance of {@link UfsDirectoryStatus}.
    *
@@ -25,9 +29,39 @@ public class UfsDirectoryStatus extends UfsStatus {
    * @param owner of the directory
    * @param group of the directory
    * @param mode of the directory
+   * @param lastModifiedTimeMs of the directory
+   * @param xAttr extended attributes, if any
+   */
+  public UfsDirectoryStatus(String name, String owner, String group, short mode,
+      Long lastModifiedTimeMs, @Nullable Map<String, byte[]> xAttr) {
+    super(name, true, owner, group, mode, lastModifiedTimeMs, xAttr);
+  }
+
+  /**
+   * Creates new instance of {@link UfsDirectoryStatus}.
+   *
+   * @param name relative path of directory
+   * @param owner of the directory
+   * @param group of the directory
+   * @param mode of the directory
+   * @param lastModifiedTimeMs of the directory
+   */
+  public UfsDirectoryStatus(String name, String owner, String group, short mode,
+      Long lastModifiedTimeMs) {
+    super(name, true, owner, group, mode, lastModifiedTimeMs, null);
+  }
+
+  /**
+   * Creates new instance of {@link UfsDirectoryStatus} without providing last modified time or
+   * extended attributes.
+   *
+   * @param name relative path of directory
+   * @param owner of the directory
+   * @param group of the directory
+   * @param mode of the directory
    */
   public UfsDirectoryStatus(String name, String owner, String group, short mode) {
-    super(name, true, owner, group, mode);
+    super(name, true, owner, group, mode, null, null);
   }
 
   /**
@@ -42,5 +76,10 @@ public class UfsDirectoryStatus extends UfsStatus {
   @Override
   public UfsDirectoryStatus copy() {
     return new UfsDirectoryStatus(this);
+  }
+
+  @Override
+  public String toString() {
+    return toStringHelper().toString();
   }
 }

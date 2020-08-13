@@ -13,9 +13,9 @@ package alluxio.wire;
 
 import static org.junit.Assert.assertEquals;
 
-import alluxio.CommonTestUtils;
+import alluxio.test.util.CommonUtils;
 
-import org.codehaus.jackson.map.ObjectMapper;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.Test;
 
 import java.util.Random;
@@ -35,7 +35,7 @@ public class CapacityTest {
 
   @Test
   public void equals() {
-    CommonTestUtils.testEquals(AlluxioMasterInfo.class);
+    CommonUtils.testEquals(AlluxioMasterInfo.class);
   }
 
   /**

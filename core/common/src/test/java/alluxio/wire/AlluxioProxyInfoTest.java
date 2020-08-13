@@ -11,11 +11,11 @@
 
 package alluxio.wire;
 
-import alluxio.CommonTestUtils;
+import static org.junit.Assert.assertEquals;
+
 import alluxio.util.CommonUtils;
 
-import org.codehaus.jackson.map.ObjectMapper;
-import org.junit.Assert;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.Test;
 
 import java.util.HashMap;
@@ -35,15 +35,15 @@ public class AlluxioProxyInfoTest {
 
   @Test
   public void equals() {
-    CommonTestUtils.testEquals(AlluxioProxyInfo.class);
+    alluxio.test.util.CommonUtils.testEquals(AlluxioProxyInfo.class);
   }
 
   private void checkEquality(AlluxioProxyInfo a, AlluxioProxyInfo b) {
-    Assert.assertEquals(a.getConfiguration(), b.getConfiguration());
-    Assert.assertEquals(a.getStartTimeMs(), b.getStartTimeMs());
-    Assert.assertEquals(a.getUptimeMs(), b.getUptimeMs());
-    Assert.assertEquals(a.getVersion(), b.getVersion());
-    Assert.assertEquals(a, b);
+    assertEquals(a.getConfiguration(), b.getConfiguration());
+    assertEquals(a.getStartTimeMs(), b.getStartTimeMs());
+    assertEquals(a.getUptimeMs(), b.getUptimeMs());
+    assertEquals(a.getVersion(), b.getVersion());
+    assertEquals(a, b);
   }
 
   private static AlluxioProxyInfo createRandom() {

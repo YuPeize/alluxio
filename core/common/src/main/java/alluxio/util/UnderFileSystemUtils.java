@@ -130,11 +130,39 @@ public final class UnderFileSystemUtils {
   }
 
   /**
+   * @param ufs the {@link UnderFileSystem} implementation to check
+   * @return true if the implementation is a Http implementation
+   */
+  public static boolean isWeb(UnderFileSystem ufs) {
+    return "web".equals(ufs.getUnderFSType());
+  }
+
+  /**
    * @param uri the UFS path
    * @return the bucket or container name of the object storage
    */
   public static String getBucketName(AlluxioURI uri) {
-    return uri.getAuthority();
+    return uri.getAuthority().toString();
+  }
+
+  /**
+   * Returns an approximate content hash, using the length and modification time.
+   *
+   * @param length the content length
+   * @param modTime the content last modification time
+   * @return the content hash
+   */
+  public static String approximateContentHash(long length, long modTime) {
+    // approximating the content hash with the file length and modtime.
+    StringBuilder sb = new StringBuilder();
+    sb.append('(');
+    sb.append("len:");
+    sb.append(length);
+    sb.append(", ");
+    sb.append("modtime:");
+    sb.append(modTime);
+    sb.append(')');
+    return sb.toString();
   }
 
   private UnderFileSystemUtils() {} // prevent instantiation

@@ -12,9 +12,12 @@
 package alluxio.cli.fs.command;
 
 import alluxio.AlluxioURI;
-import alluxio.client.file.FileSystem;
-import alluxio.client.file.options.SetAttributeOptions;
+import alluxio.annotation.PublicApi;
+import alluxio.cli.CommandUtils;
+import alluxio.client.file.FileSystemContext;
 import alluxio.exception.AlluxioException;
+import alluxio.exception.status.InvalidArgumentException;
+import alluxio.grpc.SetAttributePOptions;
 
 import org.apache.commons.cli.CommandLine;
 import org.apache.commons.cli.Option;
@@ -28,6 +31,7 @@ import javax.annotation.concurrent.ThreadSafe;
  * Changes the group of a file or directory specified by args.
  */
 @ThreadSafe
+@PublicApi
 public final class ChgrpCommand extends AbstractFileSystemCommand {
 
   private static final Option RECURSIVE_OPTION =
@@ -37,13 +41,15 @@ public final class ChgrpCommand extends AbstractFileSystemCommand {
           .desc("change group recursively")
           .build();
 
+  private String mGroup;
+
   /**
    * Creates a new instance of {@link ChgrpCommand}.
    *
-   * @param fs an Alluxio file system handle
+   * @param fsContext an Alluxio file system handle
    */
-  public ChgrpCommand(FileSystem fs) {
-    super(fs);
+  public ChgrpCommand(FileSystemContext fsContext) {
+    super(fsContext);
   }
 
   @Override
@@ -52,8 +58,8 @@ public final class ChgrpCommand extends AbstractFileSystemCommand {
   }
 
   @Override
-  protected int getNumOfArgs() {
-    return 2;
+  public void validateArgs(CommandLine cl) throws InvalidArgumentException {
+    CommandUtils.checkNumOfArgsEquals(this, cl, 2);
   }
 
   @Override
@@ -70,18 +76,25 @@ public final class ChgrpCommand extends AbstractFileSystemCommand {
    */
   private void chgrp(AlluxioURI path, String group, boolean recursive)
       throws AlluxioException, IOException {
-    SetAttributeOptions options =
-        SetAttributeOptions.defaults().setGroup(group).setRecursive(recursive);
+    SetAttributePOptions options =
+        SetAttributePOptions.newBuilder().setGroup(group).setRecursive(recursive).build();
     mFileSystem.setAttribute(path, options);
     System.out.println("Changed group of " + path + " to " + group);
   }
 
   @Override
+  protected void runPlainPath(AlluxioURI path, CommandLine cl)
+      throws IOException, AlluxioException {
+    chgrp(path, mGroup, cl.hasOption("R"));
+  }
+
+  @Override
   public int run(CommandLine cl) throws AlluxioException, IOException {
     String[] args = cl.getArgs();
-    String group = args[0];
+    mGroup = args[0];
     AlluxioURI path = new AlluxioURI(args[1]);
-    chgrp(path, group, cl.hasOption("R"));
+    runWildCardCmd(path, cl);
+
     return 0;
   }
 

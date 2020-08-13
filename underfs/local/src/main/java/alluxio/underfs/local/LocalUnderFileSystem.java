@@ -12,13 +12,12 @@
 package alluxio.underfs.local;
 
 import alluxio.AlluxioURI;
-import alluxio.Configuration;
-import alluxio.PropertyKey;
+import alluxio.conf.PropertyKey;
 import alluxio.exception.ExceptionMessage;
 import alluxio.security.authorization.Mode;
 import alluxio.underfs.AtomicFileOutputStream;
 import alluxio.underfs.AtomicFileOutputStreamCallback;
-import alluxio.underfs.BaseUnderFileSystem;
+import alluxio.underfs.ConsistentUnderFileSystem;
 import alluxio.underfs.UfsDirectoryStatus;
 import alluxio.underfs.UfsFileStatus;
 import alluxio.underfs.UfsStatus;
@@ -29,6 +28,7 @@ import alluxio.underfs.options.DeleteOptions;
 import alluxio.underfs.options.FileLocationOptions;
 import alluxio.underfs.options.MkdirsOptions;
 import alluxio.underfs.options.OpenOptions;
+import alluxio.util.UnderFileSystemUtils;
 import alluxio.util.io.FileUtils;
 import alluxio.util.io.PathUtils;
 import alluxio.util.network.NetworkAddressUtils;
@@ -39,6 +39,8 @@ import com.google.common.io.ByteStreams;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.io.BufferedInputStream;
+import java.io.BufferedOutputStream;
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileNotFoundException;
@@ -46,6 +48,7 @@ import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
+import java.nio.file.FileSystemException;
 import java.nio.file.Files;
 import java.nio.file.Paths;
 import java.nio.file.attribute.PosixFileAttributes;
@@ -65,7 +68,7 @@ import javax.annotation.concurrent.ThreadSafe;
  * </p>
  */
 @ThreadSafe
-public class LocalUnderFileSystem extends BaseUnderFileSystem
+public class LocalUnderFileSystem extends ConsistentUnderFileSystem
     implements AtomicFileOutputStreamCallback {
   private static final Logger LOG = LoggerFactory.getLogger(LocalUnderFileSystem.class);
 
@@ -82,6 +85,10 @@ public class LocalUnderFileSystem extends BaseUnderFileSystem
   @Override
   public String getUnderFSType() {
     return "local";
+  }
+
+  @Override
+  public void cleanup() throws IOException {
   }
 
   @Override
@@ -105,7 +112,7 @@ public class LocalUnderFileSystem extends BaseUnderFileSystem
         throw new IOException(ExceptionMessage.PARENT_CREATION_FAILED.getMessage(path));
       }
     }
-    OutputStream stream = new FileOutputStream(path);
+    OutputStream stream = new BufferedOutputStream(new FileOutputStream(path));
     try {
       setMode(path, options.getMode().toShort());
     } catch (IOException e) {
@@ -164,23 +171,30 @@ public class LocalUnderFileSystem extends BaseUnderFileSystem
     if (!file.exists()) {
       throw new FileNotFoundException(path);
     }
-    return Configuration.getBytes(PropertyKey.USER_BLOCK_SIZE_BYTES_DEFAULT);
+    return mUfsConf.getBytes(PropertyKey.USER_BLOCK_SIZE_BYTES_DEFAULT);
   }
 
   @Override
   public UfsDirectoryStatus getDirectoryStatus(String path) throws IOException {
     String tpath = stripPath(path);
     File file = new File(tpath);
-    PosixFileAttributes attr =
-        Files.readAttributes(Paths.get(file.getPath()), PosixFileAttributes.class);
-    return new UfsDirectoryStatus(path, attr.owner().getName(), attr.group().getName(),
-        FileUtils.translatePosixPermissionToMode(attr.permissions()));
+    try {
+      PosixFileAttributes attr =
+          Files.readAttributes(Paths.get(file.getPath()), PosixFileAttributes.class);
+      if (!attr.isDirectory()) {
+        throw new IOException(String.format("path %s is not directory", path));
+      }
+      return new UfsDirectoryStatus(path, attr.owner().getName(), attr.group().getName(),
+          FileUtils.translatePosixPermissionToMode(attr.permissions()), file.lastModified());
+    } catch (FileSystemException e) {
+      throw new FileNotFoundException(e.getMessage());
+    }
   }
 
   @Override
   public List<String> getFileLocations(String path) throws IOException {
     List<String> ret = new ArrayList<>();
-    ret.add(NetworkAddressUtils.getConnectHost(ServiceType.WORKER_RPC));
+    ret.add(NetworkAddressUtils.getConnectHost(ServiceType.WORKER_RPC, mUfsConf));
     return ret;
   }
 
@@ -194,10 +208,21 @@ public class LocalUnderFileSystem extends BaseUnderFileSystem
   public UfsFileStatus getFileStatus(String path) throws IOException {
     String tpath = stripPath(path);
     File file = new File(tpath);
-    PosixFileAttributes attr =
-        Files.readAttributes(Paths.get(file.getPath()), PosixFileAttributes.class);
-    return new UfsFileStatus(path, file.length(), file.lastModified(), attr.owner().getName(),
-        attr.group().getName(), FileUtils.translatePosixPermissionToMode(attr.permissions()));
+    try {
+      PosixFileAttributes attr =
+          Files.readAttributes(Paths.get(file.getPath()), PosixFileAttributes.class);
+      if (attr.isDirectory()) {
+        throw new IOException(String.format("path %s is not a file", path));
+      }
+      String contentHash =
+          UnderFileSystemUtils.approximateContentHash(file.length(), file.lastModified());
+      return new UfsFileStatus(path, contentHash, file.length(), file.lastModified(),
+          attr.owner().getName(), attr.group().getName(),
+          FileUtils.translatePosixPermissionToMode(attr.permissions()),
+          mUfsConf.getBytes(PropertyKey.USER_BLOCK_SIZE_BYTES_DEFAULT));
+    } catch (FileSystemException e) {
+      throw new FileNotFoundException(e.getMessage());
+    }
   }
 
   @Override
@@ -213,6 +238,30 @@ public class LocalUnderFileSystem extends BaseUnderFileSystem
         return file.getTotalSpace() - file.getFreeSpace();
       default:
         throw new IOException("Unknown space type: " + type);
+    }
+  }
+
+  @Override
+  public UfsStatus getStatus(String path) throws IOException {
+    String tpath = stripPath(path);
+    File file = new File(tpath);
+    try {
+      PosixFileAttributes attr =
+          Files.readAttributes(Paths.get(file.getPath()), PosixFileAttributes.class);
+      if (file.isFile()) {
+        // Return file status.
+        String contentHash =
+            UnderFileSystemUtils.approximateContentHash(file.length(), file.lastModified());
+        return new UfsFileStatus(path, contentHash, file.length(), file.lastModified(),
+            attr.owner().getName(), attr.group().getName(),
+            FileUtils.translatePosixPermissionToMode(attr.permissions()),
+            mUfsConf.getBytes(PropertyKey.USER_BLOCK_SIZE_BYTES_DEFAULT));
+      }
+      // Return directory status.
+      return new UfsDirectoryStatus(path, attr.owner().getName(), attr.group().getName(),
+          FileUtils.translatePosixPermissionToMode(attr.permissions()), file.lastModified());
+    } catch (FileSystemException e) {
+      throw new FileNotFoundException(e.getMessage());
     }
   }
 
@@ -246,10 +295,13 @@ public class LocalUnderFileSystem extends BaseUnderFileSystem
         UfsStatus retStatus;
         if (f.isDirectory()) {
           retStatus = new UfsDirectoryStatus(f.getName(), attr.owner().getName(),
-              attr.group().getName(), mode);
+              attr.group().getName(), mode, f.lastModified());
         } else {
-          retStatus = new UfsFileStatus(f.getName(), f.length(), f.lastModified(),
-              attr.owner().getName(), attr.group().getName(), mode);
+          String contentHash =
+              UnderFileSystemUtils.approximateContentHash(f.length(), f.lastModified());
+          retStatus = new UfsFileStatus(f.getName(), contentHash, f.length(), f.lastModified(),
+              attr.owner().getName(), attr.group().getName(), mode,
+              mUfsConf.getBytes(PropertyKey.USER_BLOCK_SIZE_BYTES_DEFAULT));
         }
         rtn[i++] = retStatus;
       }
@@ -281,7 +333,7 @@ public class LocalUnderFileSystem extends BaseUnderFileSystem
     Stack<File> dirsToMake = new Stack<>();
     dirsToMake.push(file);
     File parent = file.getParentFile();
-    while (!parent.exists()) {
+    while (parent != null && !parent.exists()) {
       dirsToMake.push(parent);
       parent = parent.getParentFile();
     }
@@ -310,7 +362,7 @@ public class LocalUnderFileSystem extends BaseUnderFileSystem
   @Override
   public InputStream open(String path, OpenOptions options) throws IOException {
     path = stripPath(path);
-    FileInputStream inputStream = new FileInputStream(path);
+    InputStream inputStream = new BufferedInputStream(new FileInputStream(path));
     try {
       ByteStreams.skipFully(inputStream, options.getOffset());
     } catch (IOException e) {
@@ -354,7 +406,7 @@ public class LocalUnderFileSystem extends BaseUnderFileSystem
       LOG.debug("Exception: ", e);
       LOG.warn("In order for Alluxio to modify ownership of local files, "
           + "Alluxio should be the local file system superuser.");
-      if (!Configuration.getBoolean(PropertyKey.UNDERFS_ALLOW_SET_OWNER_FAILURE)) {
+      if (!mUfsConf.getBoolean(PropertyKey.UNDERFS_ALLOW_SET_OWNER_FAILURE)) {
         throw e;
       } else {
         LOG.warn("Failure is ignored, which may cause permission inconsistency between "
@@ -381,7 +433,7 @@ public class LocalUnderFileSystem extends BaseUnderFileSystem
   }
 
   @Override
-  public boolean supportsFlush() {
+  public boolean supportsFlush() throws IOException {
     return true;
   }
 

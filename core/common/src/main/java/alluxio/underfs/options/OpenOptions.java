@@ -13,6 +13,7 @@ package alluxio.underfs.options;
 
 import alluxio.annotation.PublicApi;
 
+import com.google.common.base.MoreObjects;
 import com.google.common.base.Objects;
 
 import javax.annotation.concurrent.NotThreadSafe;
@@ -28,6 +29,14 @@ public final class OpenOptions {
 
   private long mLength;
 
+  private boolean mPositionShort;
+
+  /**
+   * If true, attempt to recover after failed opened attempts. Extra effort may be required in
+   * order to recover from a failed open.
+   */
+  private boolean mRecoverFailedOpen;
+
   /**
    * @return the default {@link OpenOptions}
    */
@@ -41,6 +50,8 @@ public final class OpenOptions {
   private OpenOptions() {
     mOffset = 0;
     mLength = Long.MAX_VALUE;
+    mRecoverFailedOpen = false;
+    mPositionShort = false;
   }
 
   /**
@@ -55,6 +66,20 @@ public final class OpenOptions {
    */
   public long getLength() {
     return mLength;
+  }
+
+  /**
+   * @return true if failed open attempts should be recovered
+   */
+  public boolean getRecoverFailedOpen() {
+    return mRecoverFailedOpen;
+  }
+
+  /**
+   * @return true, if the operation is using positioned read to a small buffer size
+   */
+  public boolean getPositionShort() {
+    return mPositionShort;
   }
 
   /**
@@ -77,6 +102,24 @@ public final class OpenOptions {
     return this;
   }
 
+  /**
+   * @param recover true if failed open attempts should be recovered
+   * @return the updated option object
+   */
+  public OpenOptions setRecoverFailedOpen(boolean recover) {
+    mRecoverFailedOpen = recover;
+    return this;
+  }
+
+  /**
+   * @param positionShort whether the operation is positioned read to a small buffer
+   * @return the updated option object
+   */
+  public OpenOptions setPositionShort(boolean positionShort) {
+    mPositionShort = positionShort;
+    return this;
+  }
+
   @Override
   public boolean equals(Object o) {
     if (this == o) {
@@ -86,19 +129,24 @@ public final class OpenOptions {
       return false;
     }
     OpenOptions that = (OpenOptions) o;
-    return Objects.equal(mOffset, that.mOffset) && Objects.equal(mLength, that.mLength);
+    return Objects.equal(mOffset, that.mOffset)
+        && Objects.equal(mLength, that.mLength)
+        && Objects.equal(mRecoverFailedOpen, that.mRecoverFailedOpen)
+        && Objects.equal(mPositionShort, that.mPositionShort);
   }
 
   @Override
   public int hashCode() {
-    return Objects.hashCode(mOffset, mLength);
+    return Objects.hashCode(mOffset, mLength, mRecoverFailedOpen, mPositionShort);
   }
 
   @Override
   public String toString() {
-    return Objects.toStringHelper(this)
+    return MoreObjects.toStringHelper(this)
         .add("offset", mOffset)
         .add("length", mLength)
+        .add("recoverFailedOpen", mRecoverFailedOpen)
+        .add("positionShort", mPositionShort)
         .toString();
   }
 }

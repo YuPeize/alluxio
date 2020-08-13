@@ -11,21 +11,26 @@
 
 package alluxio.cli;
 
+import alluxio.conf.InstancedConfiguration;
 import alluxio.exception.status.InvalidArgumentException;
 
+import com.google.common.io.Closer;
 import org.apache.commons.cli.CommandLine;
-import org.apache.commons.lang.ArrayUtils;
-import org.apache.commons.lang.StringUtils;
+import org.apache.commons.lang3.ArrayUtils;
+import org.apache.commons.lang3.StringUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.Closeable;
 import java.io.IOException;
 import java.util.Arrays;
+import java.util.Collection;
 import java.util.Map;
+import java.util.Set;
 import java.util.SortedSet;
 import java.util.TreeSet;
 
+import javax.annotation.Nullable;
 import javax.annotation.concurrent.NotThreadSafe;
 
 /**
@@ -36,16 +41,28 @@ public abstract class AbstractShell implements Closeable {
   private static final Logger LOG = LoggerFactory.getLogger(AbstractShell.class);
 
   private Map<String, String[]> mCommandAlias;
-  private Map<String, ? extends Command> mCommands;
+  private Set<String> mUnstableAlias;
+  private Map<String, Command> mCommands;
+  protected InstancedConfiguration mConfiguration;
+  protected Closer mCloser;
 
   /**
    * Creates a new instance of {@link AbstractShell}.
    *
    * @param commandAlias replacements for commands
+   * @param unstableAlias set of unstable aliases which may be removed in the future
+   * @param conf Alluxio configuration
    */
-  public AbstractShell(Map<String, String[]> commandAlias) {
-    mCommands = loadCommands();
+  public AbstractShell(Map<String, String[]> commandAlias,
+      Set<String> unstableAlias, InstancedConfiguration conf) {
+    mCloser = Closer.create();
+    mConfiguration = conf; // This needs to go first in case loadCommands() uses the reference to
+    // the configuration
+    mUnstableAlias = unstableAlias;
     mCommandAlias = commandAlias;
+    mCommands = loadCommands();
+    // Register all loaded commands under closer.
+    mCommands.values().stream().forEach((cmd) -> mCloser.register(cmd));
   }
 
   /**
@@ -72,10 +89,14 @@ public abstract class AbstractShell implements Closeable {
         printUsage();
         return -1;
       } else {
-        // Handle command alias, and print out WARNING message for deprecated cmd.
-        String deprecatedMsg = "WARNING: " + cmd + " is deprecated. Please use "
-            + StringUtils.join(replacementCmd, " ") + " instead.";
-        System.out.println(deprecatedMsg);
+        // Handle command alias
+        if (mUnstableAlias != null && mUnstableAlias.contains(cmd)) {
+          String deprecatedMsg =
+              String.format("WARNING: %s is not a stable CLI command. It may be removed in the "
+                      + "future. Use with caution in scripts. You may use '%s' instead.",
+                  cmd, StringUtils.join(replacementCmd, " "));
+          System.out.println(deprecatedMsg);
+        }
 
         String[] replacementArgv =
             (String[]) ArrayUtils.addAll(replacementCmd, ArrayUtils.subarray(argv, 1, argv.length));
@@ -83,12 +104,30 @@ public abstract class AbstractShell implements Closeable {
       }
     }
 
-    String[] args = Arrays.copyOfRange(argv, 1, argv.length);
+    // Find the inner-most command and its argument line.
     CommandLine cmdline;
     try {
-      cmdline = command.parseAndValidateArgs(args);
+      String[] currArgs = Arrays.copyOf(argv, argv.length);
+      while (command.hasSubCommand()) {
+        if (currArgs.length < 2) {
+          throw new InvalidArgumentException("No sub-command is specified");
+        }
+        if (!command.getSubCommands().containsKey(currArgs[1])) {
+          throw new InvalidArgumentException("Unknown sub-command: " + currArgs[1]);
+        }
+        command = command.getSubCommands().get(currArgs[1]);
+        if (currArgs.length >= 2) {
+          currArgs = Arrays.copyOfRange(currArgs, 1, currArgs.length);
+        }
+      }
+      currArgs = Arrays.copyOfRange(currArgs, 1, currArgs.length);
+
+      cmdline = command.parseAndValidateArgs(currArgs);
     } catch (InvalidArgumentException e) {
+      // It outputs a prompt message when passing wrong args to CLI
+      System.out.println(e.getMessage());
       System.out.println("Usage: " + command.getUsage());
+      System.out.println(command.getDescription());
       LOG.error("Invalid arguments for command {}:", command.getCommandName(), e);
       return -1;
     }
@@ -103,8 +142,16 @@ public abstract class AbstractShell implements Closeable {
     }
   }
 
+  /**
+   * @return all commands provided by this shell
+   */
+  public Collection<Command> getCommands() {
+    return mCommands.values();
+  }
+
   @Override
   public void close() throws IOException {
+    mCloser.close();
   }
 
   /**
@@ -113,6 +160,7 @@ public abstract class AbstractShell implements Closeable {
    * @param cmd the name of the command
    * @return replacement command if cmd is an alias
    */
+  @Nullable
   private String[] getReplacementCmd(String cmd) {
     if (mCommandAlias == null || !mCommandAlias.containsKey(cmd)) {
       return null;
@@ -130,7 +178,7 @@ public abstract class AbstractShell implements Closeable {
    *
    * @return a set of commands which can be executed under this shell
    */
-  protected abstract Map<String, ? extends Command> loadCommands();
+  protected abstract Map<String, Command> loadCommands();
 
   /**
    * Prints usage for all commands.

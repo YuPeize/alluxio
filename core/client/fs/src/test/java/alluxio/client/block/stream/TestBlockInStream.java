@@ -11,6 +11,8 @@
 
 package alluxio.client.block.stream;
 
+import alluxio.wire.WorkerNetAddress;
+
 import java.io.IOException;
 
 /**
@@ -24,7 +26,7 @@ public class TestBlockInStream extends BlockInStream {
 
   public TestBlockInStream(byte[] data, long id, long length, boolean shortCircuit,
       BlockInStreamSource source) {
-    super(new Factory(data, shortCircuit), source, id, length);
+    super(new Factory(data, shortCircuit), new WorkerNetAddress(), source, id, length);
     mBytesRead = 0;
   }
 
@@ -66,14 +68,14 @@ public class TestBlockInStream extends BlockInStream {
   }
 
   /**
-   * Factory class to create {@link TestPacketReader}s.
+   * Factory class to create {@link TestDataReader}s.
    */
-  public static class Factory implements PacketReader.Factory {
+  public static class Factory implements DataReader.Factory {
     private final byte[] mData;
     private final boolean mShortCircuit;
 
     /**
-     * Creates an instance of {@link LocalFilePacketReader.Factory}.
+     * Creates an instance of {@link LocalFileDataReader.Factory}.
      *
      * @param data the data to serve
      */
@@ -83,8 +85,8 @@ public class TestBlockInStream extends BlockInStream {
     }
 
     @Override
-    public PacketReader create(long offset, long len) {
-      return new TestPacketReader(mData, offset, len);
+    public DataReader create(long offset, long len) {
+      return new TestDataReader(mData, offset, len);
     }
 
     @Override

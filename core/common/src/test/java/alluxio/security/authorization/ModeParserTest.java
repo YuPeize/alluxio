@@ -11,9 +11,10 @@
 
 package alluxio.security.authorization;
 
+import static org.junit.Assert.assertEquals;
+
 import alluxio.exception.ExceptionMessage;
 
-import org.junit.Assert;
 import org.junit.Rule;
 import org.junit.Test;
 import org.junit.rules.ExpectedException;
@@ -31,136 +32,134 @@ public final class ModeParserTest {
   @Rule
   public ExpectedException mThrown = ExpectedException.none();
 
-  private final ModeParser mParser = new ModeParser();
-
   @Test
   public void numerics() {
-    Mode parsed = mParser.parse("777");
-    Assert.assertEquals(Mode.Bits.ALL, parsed.getOwnerBits());
-    Assert.assertEquals(Mode.Bits.ALL, parsed.getGroupBits());
-    Assert.assertEquals(Mode.Bits.ALL, parsed.getOtherBits());
+    Mode parsed = ModeParser.parse("777");
+    assertEquals(Mode.Bits.ALL, parsed.getOwnerBits());
+    assertEquals(Mode.Bits.ALL, parsed.getGroupBits());
+    assertEquals(Mode.Bits.ALL, parsed.getOtherBits());
 
-    parsed = mParser.parse("755");
-    Assert.assertEquals(Mode.Bits.ALL, parsed.getOwnerBits());
-    Assert.assertEquals(Mode.Bits.READ_EXECUTE, parsed.getGroupBits());
-    Assert.assertEquals(Mode.Bits.READ_EXECUTE, parsed.getOtherBits());
+    parsed = ModeParser.parse("755");
+    assertEquals(Mode.Bits.ALL, parsed.getOwnerBits());
+    assertEquals(Mode.Bits.READ_EXECUTE, parsed.getGroupBits());
+    assertEquals(Mode.Bits.READ_EXECUTE, parsed.getOtherBits());
 
-    parsed = mParser.parse("644");
-    Assert.assertEquals(Mode.Bits.READ_WRITE, parsed.getOwnerBits());
-    Assert.assertEquals(Mode.Bits.READ, parsed.getGroupBits());
-    Assert.assertEquals(Mode.Bits.READ, parsed.getOtherBits());
+    parsed = ModeParser.parse("644");
+    assertEquals(Mode.Bits.READ_WRITE, parsed.getOwnerBits());
+    assertEquals(Mode.Bits.READ, parsed.getGroupBits());
+    assertEquals(Mode.Bits.READ, parsed.getOtherBits());
   }
 
   @Test
   public void symbolicsSeparated() {
-    Mode parsed = mParser.parse("u=rwx,g=rwx,o=rwx");
-    Assert.assertEquals(Mode.Bits.ALL, parsed.getOwnerBits());
-    Assert.assertEquals(Mode.Bits.ALL, parsed.getGroupBits());
-    Assert.assertEquals(Mode.Bits.ALL, parsed.getOtherBits());
+    Mode parsed = ModeParser.parse("u=rwx,g=rwx,o=rwx");
+    assertEquals(Mode.Bits.ALL, parsed.getOwnerBits());
+    assertEquals(Mode.Bits.ALL, parsed.getGroupBits());
+    assertEquals(Mode.Bits.ALL, parsed.getOtherBits());
 
-    parsed = mParser.parse("u=rwx,g=rx,o=rx");
-    Assert.assertEquals(Mode.Bits.ALL, parsed.getOwnerBits());
-    Assert.assertEquals(Mode.Bits.READ_EXECUTE, parsed.getGroupBits());
-    Assert.assertEquals(Mode.Bits.READ_EXECUTE, parsed.getOtherBits());
+    parsed = ModeParser.parse("u=rwx,g=rx,o=rx");
+    assertEquals(Mode.Bits.ALL, parsed.getOwnerBits());
+    assertEquals(Mode.Bits.READ_EXECUTE, parsed.getGroupBits());
+    assertEquals(Mode.Bits.READ_EXECUTE, parsed.getOtherBits());
 
-    parsed = mParser.parse("u=rw,g=r,o=r");
-    Assert.assertEquals(Mode.Bits.READ_WRITE, parsed.getOwnerBits());
-    Assert.assertEquals(Mode.Bits.READ, parsed.getGroupBits());
-    Assert.assertEquals(Mode.Bits.READ, parsed.getOtherBits());
+    parsed = ModeParser.parse("u=rw,g=r,o=r");
+    assertEquals(Mode.Bits.READ_WRITE, parsed.getOwnerBits());
+    assertEquals(Mode.Bits.READ, parsed.getGroupBits());
+    assertEquals(Mode.Bits.READ, parsed.getOtherBits());
   }
 
   @Test
   public void symbolicsCombined() {
-    Mode parsed = mParser.parse("a=rwx");
-    Assert.assertEquals(Mode.Bits.ALL, parsed.getOwnerBits());
-    Assert.assertEquals(Mode.Bits.ALL, parsed.getGroupBits());
-    Assert.assertEquals(Mode.Bits.ALL, parsed.getOtherBits());
+    Mode parsed = ModeParser.parse("a=rwx");
+    assertEquals(Mode.Bits.ALL, parsed.getOwnerBits());
+    assertEquals(Mode.Bits.ALL, parsed.getGroupBits());
+    assertEquals(Mode.Bits.ALL, parsed.getOtherBits());
 
-    parsed = mParser.parse("ugo=rwx");
-    Assert.assertEquals(Mode.Bits.ALL, parsed.getOwnerBits());
-    Assert.assertEquals(Mode.Bits.ALL, parsed.getGroupBits());
-    Assert.assertEquals(Mode.Bits.ALL, parsed.getOtherBits());
+    parsed = ModeParser.parse("ugo=rwx");
+    assertEquals(Mode.Bits.ALL, parsed.getOwnerBits());
+    assertEquals(Mode.Bits.ALL, parsed.getGroupBits());
+    assertEquals(Mode.Bits.ALL, parsed.getOtherBits());
 
-    parsed = mParser.parse("u=rwx,go=rx");
-    Assert.assertEquals(Mode.Bits.ALL, parsed.getOwnerBits());
-    Assert.assertEquals(Mode.Bits.READ_EXECUTE, parsed.getGroupBits());
-    Assert.assertEquals(Mode.Bits.READ_EXECUTE, parsed.getOtherBits());
+    parsed = ModeParser.parse("u=rwx,go=rx");
+    assertEquals(Mode.Bits.ALL, parsed.getOwnerBits());
+    assertEquals(Mode.Bits.READ_EXECUTE, parsed.getGroupBits());
+    assertEquals(Mode.Bits.READ_EXECUTE, parsed.getOtherBits());
 
-    parsed = mParser.parse("u=rw,go=r");
-    Assert.assertEquals(Mode.Bits.READ_WRITE, parsed.getOwnerBits());
-    Assert.assertEquals(Mode.Bits.READ, parsed.getGroupBits());
-    Assert.assertEquals(Mode.Bits.READ, parsed.getOtherBits());
+    parsed = ModeParser.parse("u=rw,go=r");
+    assertEquals(Mode.Bits.READ_WRITE, parsed.getOwnerBits());
+    assertEquals(Mode.Bits.READ, parsed.getGroupBits());
+    assertEquals(Mode.Bits.READ, parsed.getOtherBits());
   }
 
   @Test
   public void symbolicsCumulative() {
-    Mode parsed = mParser.parse("u=r,u=w,u=x");
-    Assert.assertEquals(Mode.Bits.ALL, parsed.getOwnerBits());
-    Assert.assertEquals(Mode.Bits.NONE, parsed.getGroupBits());
-    Assert.assertEquals(Mode.Bits.NONE, parsed.getOtherBits());
+    Mode parsed = ModeParser.parse("u=r,u=w,u=x");
+    assertEquals(Mode.Bits.ALL, parsed.getOwnerBits());
+    assertEquals(Mode.Bits.NONE, parsed.getGroupBits());
+    assertEquals(Mode.Bits.NONE, parsed.getOtherBits());
 
-    parsed = mParser.parse("g=r,g=w,g=x");
-    Assert.assertEquals(Mode.Bits.NONE, parsed.getOwnerBits());
-    Assert.assertEquals(Mode.Bits.ALL, parsed.getGroupBits());
-    Assert.assertEquals(Mode.Bits.NONE, parsed.getOtherBits());
+    parsed = ModeParser.parse("g=r,g=w,g=x");
+    assertEquals(Mode.Bits.NONE, parsed.getOwnerBits());
+    assertEquals(Mode.Bits.ALL, parsed.getGroupBits());
+    assertEquals(Mode.Bits.NONE, parsed.getOtherBits());
 
-    parsed = mParser.parse("o=r,o=w,o=x");
-    Assert.assertEquals(Mode.Bits.NONE, parsed.getOwnerBits());
-    Assert.assertEquals(Mode.Bits.NONE, parsed.getGroupBits());
-    Assert.assertEquals(Mode.Bits.ALL, parsed.getOtherBits());
+    parsed = ModeParser.parse("o=r,o=w,o=x");
+    assertEquals(Mode.Bits.NONE, parsed.getOwnerBits());
+    assertEquals(Mode.Bits.NONE, parsed.getGroupBits());
+    assertEquals(Mode.Bits.ALL, parsed.getOtherBits());
   }
 
   @Test
   public void symbolicsPartial() {
-    Mode parsed = mParser.parse("u=rwx");
-    Assert.assertEquals(Mode.Bits.ALL, parsed.getOwnerBits());
-    Assert.assertEquals(Mode.Bits.NONE, parsed.getGroupBits());
-    Assert.assertEquals(Mode.Bits.NONE, parsed.getOtherBits());
+    Mode parsed = ModeParser.parse("u=rwx");
+    assertEquals(Mode.Bits.ALL, parsed.getOwnerBits());
+    assertEquals(Mode.Bits.NONE, parsed.getGroupBits());
+    assertEquals(Mode.Bits.NONE, parsed.getOtherBits());
 
-    parsed = mParser.parse("go=rw");
-    Assert.assertEquals(Mode.Bits.NONE, parsed.getOwnerBits());
-    Assert.assertEquals(Mode.Bits.READ_WRITE, parsed.getGroupBits());
-    Assert.assertEquals(Mode.Bits.READ_WRITE, parsed.getOtherBits());
+    parsed = ModeParser.parse("go=rw");
+    assertEquals(Mode.Bits.NONE, parsed.getOwnerBits());
+    assertEquals(Mode.Bits.READ_WRITE, parsed.getGroupBits());
+    assertEquals(Mode.Bits.READ_WRITE, parsed.getOtherBits());
 
-    parsed = mParser.parse("o=x");
-    Assert.assertEquals(Mode.Bits.NONE, parsed.getOwnerBits());
-    Assert.assertEquals(Mode.Bits.NONE, parsed.getGroupBits());
-    Assert.assertEquals(Mode.Bits.EXECUTE, parsed.getOtherBits());
+    parsed = ModeParser.parse("o=x");
+    assertEquals(Mode.Bits.NONE, parsed.getOwnerBits());
+    assertEquals(Mode.Bits.NONE, parsed.getGroupBits());
+    assertEquals(Mode.Bits.EXECUTE, parsed.getOtherBits());
   }
 
   @Test
   public void symbolicsBadEmpty() {
     mThrown.expect(IllegalArgumentException.class);
     mThrown.expectMessage(ExceptionMessage.INVALID_MODE.getMessage(""));
-    mParser.parse("");
+    ModeParser.parse("");
   }
 
   @Test
   public void symbolicsBadNull() {
     mThrown.expect(IllegalArgumentException.class);
     mThrown.expectMessage(ExceptionMessage.INVALID_MODE.getMessage((Object) null));
-    mParser.parse(null);
+    ModeParser.parse(null);
   }
 
   @Test
   public void symbolicsBadWhitespace() {
     mThrown.expect(IllegalArgumentException.class);
     mThrown.expectMessage(ExceptionMessage.INVALID_MODE.getMessage("  "));
-    mParser.parse("  ");
+    ModeParser.parse("  ");
   }
 
   @Test
   public void symbolicsBadNoSeparator() {
     mThrown.expect(IllegalArgumentException.class);
     mThrown.expectMessage(ExceptionMessage.INVALID_MODE_SEGMENT.getMessage("u=rwx,foo", "foo"));
-    mParser.parse("u=rwx,foo");
+    ModeParser.parse("u=rwx,foo");
   }
 
   @Test
   public void symbolicsBadTargets() {
     mThrown.expect(IllegalArgumentException.class);
     mThrown.expectMessage(ExceptionMessage.INVALID_MODE_SEGMENT.getMessage("f=r", "f=r", "f"));
-    mParser.parse("f=r");
+    ModeParser.parse("f=r");
   }
 
   @Test
@@ -168,6 +167,6 @@ public final class ModeParserTest {
     mThrown.expect(IllegalArgumentException.class);
     mThrown.expectMessage(ExceptionMessage.INVALID_MODE_SEGMENT
         .getMessage("u=Xst", "u=Xst", "Xst"));
-    mParser.parse("u=Xst");
+    ModeParser.parse("u=Xst");
   }
 }

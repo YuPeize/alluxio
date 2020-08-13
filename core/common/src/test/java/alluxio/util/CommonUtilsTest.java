@@ -12,16 +12,21 @@
 package alluxio.util;
 
 import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.fail;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertSame;
+import static org.junit.Assert.assertThat;
 import static org.junit.Assert.assertTrue;
+import static org.junit.Assert.fail;
 
+import alluxio.ConfigurationTestUtils;
 import alluxio.Constants;
+import alluxio.conf.InstancedConfiguration;
 import alluxio.security.group.CachedGroupMapping;
 import alluxio.security.group.GroupMappingService;
 
 import com.google.common.collect.Lists;
+import com.google.common.io.Files;
+import org.hamcrest.Matchers;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.mockito.Mockito;
@@ -29,24 +34,54 @@ import org.powermock.api.mockito.PowerMockito;
 import org.powermock.core.classloader.annotations.PrepareForTest;
 import org.powermock.modules.junit4.PowerMockRunner;
 
+import java.io.File;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
-import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Random;
+import java.util.Set;
 import java.util.concurrent.Callable;
 import java.util.concurrent.CyclicBarrier;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.function.Supplier;
 
 /**
  * Tests the {@link CommonUtils} class.
  */
 @RunWith(PowerMockRunner.class)
-@PrepareForTest({ShellUtils.class, GroupMappingService.Factory.class})
+@PrepareForTest({CommonUtils.class, ShellUtils.class, GroupMappingService.Factory.class})
 public class CommonUtilsTest {
+
+  /**
+   * Tests the {@link CommonUtils#convertMsToClockTime(long)} method.
+   */
+  @Test
+  public void convertMsToClockTime() {
+    assertEquals("0 day(s), 0 hour(s), 0 minute(s), and 0 second(s)",
+        CommonUtils.convertMsToClockTime(10));
+    assertEquals("0 day(s), 0 hour(s), 0 minute(s), and 1 second(s)",
+        CommonUtils.convertMsToClockTime(TimeUnit.SECONDS.toMillis(1)));
+    assertEquals("0 day(s), 0 hour(s), 1 minute(s), and 0 second(s)",
+        CommonUtils.convertMsToClockTime(TimeUnit.MINUTES.toMillis(1)));
+    assertEquals("0 day(s), 0 hour(s), 1 minute(s), and 30 second(s)",
+        CommonUtils.convertMsToClockTime(TimeUnit.MINUTES.toMillis(1)
+            + TimeUnit.SECONDS.toMillis(30)));
+    assertEquals("0 day(s), 1 hour(s), 0 minute(s), and 0 second(s)",
+        CommonUtils.convertMsToClockTime(TimeUnit.HOURS.toMillis(1)));
+    long time =
+        TimeUnit.DAYS.toMillis(1) + TimeUnit.HOURS.toMillis(4) + TimeUnit.MINUTES.toMillis(10)
+            + TimeUnit.SECONDS.toMillis(45);
+    String out = CommonUtils.convertMsToClockTime(time);
+    assertEquals("1 day(s), 4 hour(s), 10 minute(s), and 45 second(s)", out);
+  }
 
   /**
    * Tests the {@link CommonUtils#getCurrentMs()} and {@link CommonUtils#sleepMs(long)} methods.
@@ -61,6 +96,22 @@ public class CommonUtilsTest {
     /* Check that currentTime falls into the interval [startTime + delta; startTime + 2*delta] */
     assertTrue(startTime + delta <= currentTime);
     assertTrue(currentTime <= 2 * delta + startTime);
+  }
+
+  @Test
+  public void getTmpDir() {
+
+    // Test single tmp dir
+    String singleDir = "/tmp";
+    List<String> singleDirList = Arrays.asList("/tmp");
+    assertEquals(singleDir, CommonUtils.getTmpDir(singleDirList));
+    // Test multiple tmp dir
+    List<String> multiDirs = Arrays.asList("/tmp1", "/tmp2", "/tmp3");
+    Set<String> results = new HashSet<>();
+    for (int i = 0; i < 100 || results.size() != multiDirs.size(); i++) {
+      results.add(CommonUtils.getTmpDir(multiDirs));
+    }
+    assertEquals(new HashSet<>(multiDirs), results);
   }
 
   /**
@@ -155,14 +206,9 @@ public class CommonUtilsTest {
     testCases.add(new TestCase("1", TestClassB.class, new Class[] {int.class}, 1));
 
     for (TestCase testCase : testCases) {
-      try {
-        Object o =
-            CommonUtils.createNewClassInstance(testCase.mCls, testCase.mCtorClassArgs,
-                testCase.mCtorArgs);
-        assertEquals(o.toString(), testCase.mExpected);
-      } catch (Exception e) {
-        e.printStackTrace();
-      }
+      Object o = CommonUtils.createNewClassInstance(testCase.mCls, testCase.mCtorClassArgs,
+          testCase.mCtorArgs);
+      assertEquals(o.toString(), testCase.mExpected);
     }
   }
 
@@ -226,6 +272,8 @@ public class CommonUtilsTest {
    */
   @Test
   public void getGroups() throws Throwable {
+    InstancedConfiguration conf = ConfigurationTestUtils.defaults();
+
     String userName = "alluxio-user1";
     String userGroup1 = "alluxio-user1-group1";
     String userGroup2 = "alluxio-user1-group2";
@@ -236,12 +284,12 @@ public class CommonUtilsTest {
     PowerMockito.when(cachedGroupService.getGroups(Mockito.anyString())).thenReturn(
         Lists.newArrayList(userGroup1, userGroup2));
     PowerMockito.mockStatic(GroupMappingService.Factory.class);
-    Mockito.when(GroupMappingService.Factory.get()).thenReturn(cachedGroupService);
+    Mockito.when(GroupMappingService.Factory.get(conf)).thenReturn(cachedGroupService);
 
-    List<String> groups = CommonUtils.getGroups(userName);
+    List<String> groups = CommonUtils.getGroups(userName, conf);
     assertEquals(Arrays.asList(userGroup1, userGroup2), groups);
 
-    String primaryGroup = CommonUtils.getPrimaryGroupName(userName);
+    String primaryGroup = CommonUtils.getPrimaryGroupName(userName, conf);
     assertNotNull(primaryGroup);
     assertEquals(userGroup1, primaryGroup);
   }
@@ -368,7 +416,7 @@ public class CommonUtilsTest {
         }
       });
     }
-    CommonUtils.invokeAll(tasks, 10, TimeUnit.SECONDS);
+    CommonUtils.invokeAll(tasks, 10 * Constants.SECOND_MS);
     assertEquals(numTasks, completed.get());
   }
 
@@ -386,11 +434,33 @@ public class CommonUtilsTest {
       });
     }
     try {
-      CommonUtils.invokeAll(tasks, 50, TimeUnit.MILLISECONDS);
+      CommonUtils.invokeAll(tasks, 50);
       fail("Expected a timeout exception");
     } catch (TimeoutException e) {
       // Expected
     }
+  }
+
+  @Test
+  public void invokeAllExceptionAndHang() throws Exception {
+    long start = System.currentTimeMillis();
+    RuntimeException testException = new RuntimeException("failed");
+    try {
+      CommonUtils.invokeAll(Arrays.asList(
+          () -> {
+            Thread.sleep(10 * Constants.SECOND_MS);
+            return null;
+          },
+          () -> {
+            throw testException;
+          }
+      ), 5 * Constants.SECOND_MS);
+      fail("Expected an exception to be thrown");
+    } catch (ExecutionException e) {
+      assertSame(testException, e.getCause());
+    }
+    assertThat("invokeAll should exit early if one of the tasks throws an exception",
+        System.currentTimeMillis() - start, Matchers.lessThan(2L * Constants.SECOND_MS));
   }
 
   @Test
@@ -413,10 +483,10 @@ public class CommonUtilsTest {
       });
     }
     try {
-      CommonUtils.invokeAll(tasks, 2, TimeUnit.SECONDS);
+      CommonUtils.invokeAll(tasks, 2 * Constants.SECOND_MS);
       fail("Expected an exception to be thrown");
-    } catch (Exception e) {
-      assertSame(testException, e);
+    } catch (ExecutionException e) {
+      assertSame(testException, e.getCause());
     }
   }
 
@@ -431,25 +501,169 @@ public class CommonUtilsTest {
     List<Callable<Void>> tasks = new ArrayList<>();
     final Exception testException = new Exception("test message");
     for (int i = 0; i < numTasks; i++) {
-      tasks.add(new Callable<Void>() {
-        @Override
-        public Void call() throws Exception {
-          int myId = id.incrementAndGet();
-          // The 3rd task throws an exception, other tasks sleep.
-          if (myId == 3) {
-            throw testException;
-          } else {
-            Thread.sleep(10 * Constants.SECOND_MS);
-          }
-          return null;
+      tasks.add(() -> {
+        int myId = id.incrementAndGet();
+        // The 3rd task throws an exception, other tasks sleep.
+        if (myId == 3) {
+          throw testException;
+        } else {
+          Thread.sleep(10 * Constants.SECOND_MS);
         }
+        return null;
       });
     }
     try {
-      CommonUtils.invokeAll(tasks, 50, TimeUnit.MILLISECONDS);
+      CommonUtils.invokeAll(tasks, 500);
       fail("Expected an exception to be thrown");
-    } catch (Exception e) {
-      assertSame(testException, e);
+    } catch (ExecutionException e) {
+      assertSame(testException, e.getCause());
+    }
+  }
+
+  /** Returns true starting at the nth query. */
+  private static class CountCondition implements Supplier<Boolean> {
+    private final int mTarget;
+    private int mCount = 0;
+
+    public CountCondition(int target) {
+      mTarget = target;
+    }
+
+    @Override
+    public Boolean get() {
+      return ++mCount >= mTarget;
+    }
+
+    private int invocations() {
+      return mCount;
+    }
+  }
+
+  @Test
+  public void waitForFirstTry() throws Exception {
+    testNthSuccess(1);
+  }
+
+  @Test
+  public void waitForSecondTry() throws Exception {
+    testNthSuccess(2);
+  }
+
+  @Test
+  public void waitForFiftyTry() throws Exception {
+    testNthSuccess(5);
+  }
+
+  private void testNthSuccess(int n) throws Exception {
+    CountCondition cond = new CountCondition(n);
+    int intervalMs = 10;
+    WaitForOptions opts = WaitForOptions.defaults().setInterval(intervalMs);
+    long start = System.currentTimeMillis();
+    CommonUtils.waitFor("", cond, opts);
+    long durationMs = System.currentTimeMillis() - start;
+    assertThat((int) durationMs, Matchers.greaterThanOrEqualTo((n - 1) * intervalMs));
+    assertEquals(n, cond.invocations());
+  }
+
+  @Test(expected = TimeoutException.class)
+  public void waitForTimeout() throws Exception {
+    CountCondition cond = new CountCondition(100);
+    WaitForOptions opts = WaitForOptions.defaults().setInterval(3).setTimeoutMs(100);
+    CommonUtils.waitFor("", cond, opts);
+  }
+
+  @Test(timeout = 10000)
+  public void interruptInvokeAll() throws Exception {
+    // this should be significantly longer than the test timeout (10s)
+    long longWaitMs = 1000000;
+    List<Callable<Void>> tasks = new ArrayList<>();
+    for (int i = 0; i < 10; i++) {
+      tasks.add(() -> {
+        CommonUtils.sleepMs(longWaitMs);
+        return null;
+      });
+    }
+
+    Thread waiting = new Thread(() -> {
+      try {
+        CommonUtils.invokeAll(tasks, longWaitMs);
+      } catch (RuntimeException e) {
+        // expected, since it is interrupted
+      } catch (Exception e) {
+        fail("invokeAll threw unexpected exception: " + e);
+      }
+    });
+    try {
+      waiting.start();
+      waiting.interrupt();
+    } finally {
+      waiting.join();
+    }
+  }
+
+  @Test(timeout = 10000)
+  public void invokeAllTimeoutCleanup() throws Exception {
+    // this should be significantly longer than the test timeout (10s)
+    long longWaitMs = 1000000;
+    ThreadPoolExecutor service = (ThreadPoolExecutor) Executors.newCachedThreadPool();
+
+    try {
+      List<Callable<Void>> tasks = new ArrayList<>();
+      for (int i = 0; i < 10; i++) {
+        tasks.add(() -> {
+          CommonUtils.sleepMs(longWaitMs);
+          return null;
+        });
+      }
+
+      try {
+        CommonUtils.invokeAll(service, tasks, 10);
+        fail("invokeAll is expected to timeout, not succeed");
+      } catch (TimeoutException e) {
+        // expected
+      }
+
+      CommonUtils.waitFor("all threads to stop after timeout", () -> service.getActiveCount() == 0,
+          WaitForOptions.defaults().setInterval(10).setTimeoutMs(1000));
+    } finally {
+      service.shutdownNow();
+    }
+  }
+
+  @Test
+  public void recursiveList() throws Exception {
+    File tmpDirFile = Files.createTempDir();
+    tmpDirFile.deleteOnExit();
+
+    Set<File> allFiles = new HashSet<>();
+    // Create 10 files at randomly deep level in the directory
+    for (int i = 0; i < 10; i++) {
+      createFileOrDir(tmpDirFile, i, new Random(), allFiles);
+    }
+
+    List<File> listedFiles = CommonUtils.recursiveListLocalDir(tmpDirFile);
+    assertEquals(allFiles, new HashSet<>(listedFiles));
+  }
+
+  @Test
+  public void parseVersion() throws Exception {
+    assertEquals(8, CommonUtils.parseMajorVersion("1.8.0"));
+    assertEquals(11, CommonUtils.parseMajorVersion("11.0.1"));
+    assertEquals(9, CommonUtils.parseMajorVersion("9.0.1"));
+  }
+
+  private void createFileOrDir(File dir, int index, Random rand, Set<File> files)
+          throws IOException {
+    int childType = rand.nextInt(2);
+    File child = new File(dir, index + "");
+    if (childType == 1) {
+      // The child is a directory, go deeper into it
+      child.mkdir();
+      createFileOrDir(child, index, rand, files);
+    } else {
+      // The child is a file
+      child.createNewFile();
+      files.add(child);
     }
   }
 }

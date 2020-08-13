@@ -11,38 +11,53 @@
 
 package alluxio.wire;
 
+import alluxio.Constants;
+import alluxio.grpc.TtlAction;
+import alluxio.security.authorization.AccessControlList;
+import alluxio.security.authorization.DefaultAccessControlList;
+
+import com.google.common.base.MoreObjects;
 import com.google.common.base.Objects;
 import com.google.common.base.Preconditions;
 
 import java.io.Serializable;
 import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
 
+import javax.annotation.Nullable;
 import javax.annotation.concurrent.NotThreadSafe;
 
 /**
  * The file information.
  */
 @NotThreadSafe
+
 // TODO(jiri): Consolidate with URIStatus.
 public final class FileInfo implements Serializable {
-  private static final long serialVersionUID = 7119966306934831779L;
+  private static final long serialVersionUID = 3086599355791696602L;
 
   private long mFileId;
   private String mName = "";
   private String mPath = "";
   private String mUfsPath = "";
+  private String mFileIdentifier;
   private long mLength;
   private long mBlockSizeBytes;
   private long mCreationTimeMs;
   private boolean mCompleted;
   private boolean mFolder;
   private boolean mPinned;
+  private Set<String> mMediumTypes = new HashSet<>();
   private boolean mCacheable;
   private boolean mPersisted;
   private ArrayList<Long> mBlockIds = new ArrayList<>();
   private int mInMemoryPercentage;
   private long mLastModificationTimeMs;
+  private long mLastAccessTimeMs;
   private long mTtl;
   private TtlAction mTtlAction;
   private String mOwner = "";
@@ -50,9 +65,18 @@ public final class FileInfo implements Serializable {
   private int mMode;
   private String mPersistenceState = "";
   private boolean mMountPoint;
-  private ArrayList<FileBlockInfo> mFileBlockInfos = new ArrayList<>();
+  private ArrayList<FileBlockInfo> mFileBlockInfoList = new ArrayList<>();
+  /* Index of mFileBlockInfoList. */
+  private Map<Long, FileBlockInfo> mFileBlockInfoMap = new HashMap<>();
   private long mMountId;
+  private int mReplicationMax;
+  private int mReplicationMin;
   private int mInAlluxioPercentage;
+  private String mUfsFingerprint = Constants.INVALID_UFS_FINGERPRINT;
+
+  private AccessControlList mAcl = AccessControlList.EMPTY_ACL;
+  private DefaultAccessControlList mDefaultAcl = DefaultAccessControlList.EMPTY_DEFAULT_ACL;
+  private Map<String, byte[]> mXAttr;
 
   /**
    * Creates a new instance of {@link FileInfo}.
@@ -60,48 +84,20 @@ public final class FileInfo implements Serializable {
   public FileInfo() {}
 
   /**
-   * Creates a new instance of {@link FileInfo} from thrift representation.
-   *
-   * @param fileInfo the thrift representation of a file information
-   */
-  protected FileInfo(alluxio.thrift.FileInfo fileInfo) {
-    mFileId = fileInfo.getFileId();
-    mName = fileInfo.getName();
-    mPath = fileInfo.getPath();
-    mUfsPath = fileInfo.getUfsPath();
-    mLength = fileInfo.getLength();
-    mBlockSizeBytes = fileInfo.getBlockSizeBytes();
-    mCreationTimeMs = fileInfo.getCreationTimeMs();
-    mCompleted = fileInfo.isCompleted();
-    mFolder = fileInfo.isFolder();
-    mPinned = fileInfo.isPinned();
-    mCacheable = fileInfo.isCacheable();
-    mPersisted = fileInfo.isPersisted();
-    mBlockIds = new ArrayList<>(fileInfo.getBlockIds());
-    mInMemoryPercentage = fileInfo.getInMemoryPercentage();
-    mLastModificationTimeMs = fileInfo.getLastModificationTimeMs();
-    mTtl = fileInfo.getTtl();
-    mTtlAction = ThriftUtils.fromThrift(fileInfo.getTtlAction());
-    mOwner = fileInfo.getOwner();
-    mGroup = fileInfo.getGroup();
-    mMode = fileInfo.getMode();
-    mPersistenceState = fileInfo.getPersistenceState();
-    mMountPoint = fileInfo.isMountPoint();
-    mFileBlockInfos = new ArrayList<>();
-    if (fileInfo.getFileBlockInfos() != null) {
-      for (alluxio.thrift.FileBlockInfo fileBlockInfo : fileInfo.getFileBlockInfos()) {
-        mFileBlockInfos.add(new FileBlockInfo(fileBlockInfo));
-      }
-    }
-    mMountId = fileInfo.getMountId();
-    mInAlluxioPercentage = fileInfo.getInAlluxioPercentage();
-  }
-
-  /**
    * @return the file id
    */
   public long getFileId() {
     return mFileId;
+  }
+
+  /**
+   *  Similar to {@link #getFileId()}, but returns in a string form, allowing for the use of
+   *  non-long based ids.
+   *
+   *  @return the file identifier
+   */
+  public String getFileIdentifier() {
+    return mFileIdentifier != null ? mFileIdentifier : Long.toString(mFileId);
   }
 
   /**
@@ -210,6 +206,13 @@ public final class FileInfo implements Serializable {
   }
 
   /**
+   * @return the file last access time (in milliseconds)
+   */
+  public long getLastAccessTimeMs() {
+    return mLastAccessTimeMs;
+  }
+
+  /**
    * @return the file time-to-live (in seconds)
    */
   public long getTtl() {
@@ -262,7 +265,29 @@ public final class FileInfo implements Serializable {
    * @return the list of file block descriptors
    */
   public List<FileBlockInfo> getFileBlockInfos() {
-    return mFileBlockInfos;
+    return mFileBlockInfoList;
+  }
+
+  /**
+   * @param blockId the block ID
+   * @return the corresponding block info or null
+   */
+  public FileBlockInfo getFileBlockInfo(long blockId) {
+    return mFileBlockInfoMap.get(blockId);
+  }
+
+  /**
+   * @return the maximum number of block replication
+   */
+  public int getReplicationMax() {
+    return mReplicationMax;
+  }
+
+  /**
+   * @return the minimum number of block replication
+   */
+  public int getReplicationMin() {
+    return mReplicationMin;
   }
 
   /**
@@ -273,11 +298,72 @@ public final class FileInfo implements Serializable {
   }
 
   /**
+   * @return the ufs fingerprint for this file
+   */
+  public String getUfsFingerprint() {
+    return mUfsFingerprint;
+  }
+
+  /**
+   * @return the ACL object for this file
+   */
+  public AccessControlList getAcl() {
+    return mAcl;
+  }
+
+  /**
+   * @return the default ACL object for this file
+   */
+  public DefaultAccessControlList getDefaultAcl() {
+    return mDefaultAcl;
+  }
+
+  /**
+   * @return the ACL as string entries for this file
+   */
+  public List<String> convertAclToStringEntries() {
+    // do not use getX as the name of the method, otherwise it will be used by json serialization
+    return (mAcl == null) ? new ArrayList<>() : mAcl.toStringEntries();
+  }
+
+  /**
+   * @return the default ACL as string entries for this file
+   */
+  public List<String> convertDefaultAclToStringEntries() {
+    // do not use getX as the name of the method, otherwise it will be used by json serialization
+    return (mDefaultAcl == null) ? new ArrayList<>() : mDefaultAcl.toStringEntries();
+  }
+
+  /**
+   * @return a set of pinned locations
+   */
+  public Set<String> getMediumTypes() {
+    return mMediumTypes;
+  }
+
+  /**
+   * @return the extended attributes
+   */
+  @Nullable
+  public Map<String, byte[]> getXAttr() {
+    return mXAttr;
+  }
+
+  /**
    * @param fileId the file id to use
    * @return the file information
    */
   public FileInfo setFileId(long fileId) {
     mFileId = fileId;
+    return this;
+  }
+
+  /**
+   * @param fileIdentifier the file id to use
+   * @return the file information
+   */
+  public FileInfo setFileIdentifier(String fileIdentifier) {
+    mFileIdentifier = fileIdentifier;
     return this;
   }
 
@@ -421,6 +507,15 @@ public final class FileInfo implements Serializable {
   }
 
   /**
+   * @param lastAccessTimeMs the last access time (in milliseconds) to use
+   * @return the file information
+   */
+  public FileInfo setLastAccessTimeMs(long lastAccessTimeMs) {
+    mLastAccessTimeMs = lastAccessTimeMs;
+    return this;
+  }
+
+  /**
    * @param ttl the file time-to-live (in seconds) to use
    * @return the file information
    */
@@ -491,7 +586,28 @@ public final class FileInfo implements Serializable {
    * @return the file information
    */
   public FileInfo setFileBlockInfos(List<FileBlockInfo> fileBlockInfos) {
-    mFileBlockInfos = new ArrayList<>(fileBlockInfos);
+    mFileBlockInfoList = new ArrayList<>(fileBlockInfos);
+    for (FileBlockInfo info : mFileBlockInfoList) {
+      mFileBlockInfoMap.put(info.getBlockInfo().getBlockId(), info);
+    }
+    return this;
+  }
+
+  /**
+   * @param replicationMax the maximum number of block replication
+   * @return the file descriptor
+   */
+  public FileInfo setReplicationMax(int replicationMax) {
+    mReplicationMax = replicationMax;
+    return this;
+  }
+
+  /**
+   * @param replicationMin the minimum number of block replication
+   * @return the file descriptor
+   */
+  public FileInfo setReplicationMin(int replicationMin) {
+    mReplicationMin = replicationMin;
     return this;
   }
 
@@ -505,21 +621,48 @@ public final class FileInfo implements Serializable {
   }
 
   /**
-   * @return thrift representation of the file information
+   * @param ufsFingerprint the ufs fingerprint to use
+   * @return the file information
    */
-  protected alluxio.thrift.FileInfo toThrift() {
-    List<alluxio.thrift.FileBlockInfo> fileBlockInfos = new ArrayList<>();
-    for (FileBlockInfo fileBlockInfo : mFileBlockInfos) {
-      fileBlockInfos.add(fileBlockInfo.toThrift());
-    }
+  public FileInfo setUfsFingerprint(String ufsFingerprint) {
+    mUfsFingerprint = ufsFingerprint;
+    return this;
+  }
 
-    alluxio.thrift.FileInfo info =
-        new alluxio.thrift.FileInfo(mFileId, mName, mPath, mUfsPath, mLength, mBlockSizeBytes,
-        mCreationTimeMs, mCompleted, mFolder, mPinned, mCacheable, mPersisted, mBlockIds,
-        mInMemoryPercentage, mLastModificationTimeMs, mTtl, mOwner, mGroup, mMode,
-        mPersistenceState, mMountPoint, fileBlockInfos, ThriftUtils.toThrift(mTtlAction), mMountId,
-        mInAlluxioPercentage);
-    return info;
+  /**
+   * @param acl the ACL entries to use
+   * @return the file information
+   */
+  public FileInfo setAcl(AccessControlList acl) {
+    mAcl = acl;
+    return this;
+  }
+
+  /**
+   * @param defaultAcl the ACL entries to use
+   * @return the file information
+   */
+  public FileInfo setDefaultAcl(DefaultAccessControlList defaultAcl) {
+    mDefaultAcl = defaultAcl;
+    return this;
+  }
+
+  /**
+   * @param mediumTypes the pinned locations
+   * @return the file information
+   */
+  public FileInfo setMediumTypes(Set<String> mediumTypes) {
+    mMediumTypes = mediumTypes;
+    return this;
+  }
+
+  /**
+   * @param xAttr the extended attributes to use
+   * @return the updated {@link FileInfo}
+   */
+  public FileInfo setXAttr(Map<String, byte[]> xAttr) {
+    mXAttr = xAttr;
+    return this;
   }
 
   @Override
@@ -538,32 +681,51 @@ public final class FileInfo implements Serializable {
         && mCacheable == that.mCacheable && mPersisted == that.mPersisted
         && mBlockIds.equals(that.mBlockIds) && mInMemoryPercentage == that.mInMemoryPercentage
         && mLastModificationTimeMs == that.mLastModificationTimeMs && mTtl == that.mTtl
+        && mLastAccessTimeMs == that.mLastAccessTimeMs
         && mOwner.equals(that.mOwner) && mGroup.equals(that.mGroup) && mMode == that.mMode
         && mPersistenceState.equals(that.mPersistenceState) && mMountPoint == that.mMountPoint
-        && mFileBlockInfos.equals(that.mFileBlockInfos) && mTtlAction == that.mTtlAction
-        && mMountId == that.mMountId && mInAlluxioPercentage == that.mInAlluxioPercentage;
+        && mReplicationMax == that.mReplicationMax && mReplicationMin == that.mReplicationMin
+        && mFileBlockInfoList.equals(that.mFileBlockInfoList) && mTtlAction == that.mTtlAction
+        && mMountId == that.mMountId && mInAlluxioPercentage == that.mInAlluxioPercentage
+        && mUfsFingerprint.equals(that.mUfsFingerprint)
+        && Objects.equal(getFileIdentifier(), that.getFileIdentifier())
+        && Objects.equal(mAcl, that.mAcl)
+        && Objects.equal(mDefaultAcl, that.mDefaultAcl)
+        && Objects.equal(mMediumTypes, that.mMediumTypes);
   }
 
   @Override
   public int hashCode() {
     return Objects.hashCode(mFileId, mName, mPath, mUfsPath, mLength, mBlockSizeBytes,
         mCreationTimeMs, mCompleted, mFolder, mPinned, mCacheable, mPersisted, mBlockIds,
-        mInMemoryPercentage, mLastModificationTimeMs, mTtl, mOwner, mGroup, mMode,
-        mPersistenceState, mMountPoint, mFileBlockInfos, mTtlAction, mInAlluxioPercentage);
+        mInMemoryPercentage, mLastModificationTimeMs, mLastAccessTimeMs, mTtl, mOwner, mGroup,
+        mMode, mReplicationMax, mReplicationMin, mPersistenceState, mMountPoint, mFileBlockInfoList,
+        mTtlAction, mInAlluxioPercentage, mUfsFingerprint, mAcl, mDefaultAcl, mMediumTypes,
+        getFileIdentifier());
   }
 
   @Override
   public String toString() {
-    return Objects.toStringHelper(this).add("fileId", mFileId).add("name", mName).add("path", mPath)
+    return MoreObjects.toStringHelper(this)
+        .add("fileId", mFileId)
+        .add("fileIdentifier", mFileIdentifier)
+        .add("name", mName)
+        .add("path", mPath)
         .add("ufsPath", mUfsPath).add("length", mLength).add("blockSizeBytes", mBlockSizeBytes)
         .add("creationTimeMs", mCreationTimeMs).add("completed", mCompleted).add("folder", mFolder)
-        .add("pinned", mPinned).add("cacheable", mCacheable).add("persisted", mPersisted)
+        .add("pinned", mPinned).add("pinnedlocation", mMediumTypes)
+        .add("cacheable", mCacheable).add("persisted", mPersisted)
         .add("blockIds", mBlockIds).add("inMemoryPercentage", mInMemoryPercentage)
         .add("lastModificationTimesMs", mLastModificationTimeMs).add("ttl", mTtl)
+        .add("lastAccessTimesMs", mLastAccessTimeMs)
         .add("ttlAction", mTtlAction).add("owner", mOwner).add("group", mGroup).add("mode", mMode)
         .add("persistenceState", mPersistenceState).add("mountPoint", mMountPoint)
-        .add("fileBlockInfos", mFileBlockInfos)
+        .add("replicationMax", mReplicationMax).add("replicationMin", mReplicationMin)
+        .add("fileBlockInfos", mFileBlockInfoList)
         .add("mountId", mMountId).add("inAlluxioPercentage", mInAlluxioPercentage)
+        .add("ufsFingerprint", mUfsFingerprint)
+        .add("acl", mAcl.toString())
+        .add("defaultAcl", mDefaultAcl.toString())
         .toString();
   }
 }

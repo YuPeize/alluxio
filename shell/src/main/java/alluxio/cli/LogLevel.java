@@ -11,9 +11,14 @@
 
 package alluxio.cli;
 
+import alluxio.ClientContext;
 import alluxio.Constants;
-import alluxio.client.block.AlluxioBlockStore;
+import alluxio.annotation.PublicApi;
 import alluxio.client.block.BlockWorkerInfo;
+import alluxio.client.file.FileSystemContext;
+import alluxio.conf.AlluxioConfiguration;
+import alluxio.conf.InstancedConfiguration;
+import alluxio.util.ConfigurationUtils;
 import alluxio.util.network.HttpUtils;
 import alluxio.util.network.NetworkAddressUtils;
 import alluxio.util.network.NetworkAddressUtils.ServiceType;
@@ -21,7 +26,6 @@ import alluxio.wire.LogInfo;
 import alluxio.wire.WorkerNetAddress;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-
 import org.apache.commons.cli.CommandLine;
 import org.apache.commons.cli.CommandLineParser;
 import org.apache.commons.cli.DefaultParser;
@@ -29,19 +33,20 @@ import org.apache.commons.cli.HelpFormatter;
 import org.apache.commons.cli.Option;
 import org.apache.commons.cli.Options;
 import org.apache.commons.cli.ParseException;
-import org.apache.commons.lang.StringUtils;
+import org.apache.commons.lang3.StringUtils;
 import org.apache.http.client.utils.URIBuilder;
 
-import javax.annotation.concurrent.NotThreadSafe;
 import java.io.IOException;
-import java.io.InputStream;
 import java.util.ArrayList;
 import java.util.List;
+
+import javax.annotation.concurrent.NotThreadSafe;
 
 /**
  * Sets or gets the log level for the specified server.
  */
 @NotThreadSafe
+@PublicApi
 public final class LogLevel {
   private static final String LOG_LEVEL = "logLevel";
   private static final String ROLE_WORKERS = "workers";
@@ -95,13 +100,15 @@ public final class LogLevel {
    * Implements log level setting and getting.
    *
    * @param args list of arguments contains target, logName and level
+   * @param alluxioConf Alluxio configuration
    * @exception ParseException if there is an error in parsing
    */
-  public static void logLevel(String[] args) throws ParseException, IOException {
+  public static void logLevel(String[] args, AlluxioConfiguration alluxioConf)
+      throws ParseException, IOException {
     CommandLineParser parser = new DefaultParser();
     CommandLine cmd = parser.parse(OPTIONS, args, true /* stopAtNonOption */);
 
-    List<TargetInfo> targets = parseOptTarget(cmd);
+    List<TargetInfo> targets = parseOptTarget(cmd, alluxioConf);
     String logName = parseOptLogName(cmd);
     String level = parseOptLevel(cmd);
 
@@ -110,7 +117,8 @@ public final class LogLevel {
     }
   }
 
-  private static List<TargetInfo> parseOptTarget(CommandLine cmd) throws IOException {
+  private static List<TargetInfo> parseOptTarget(CommandLine cmd, AlluxioConfiguration conf)
+      throws IOException {
     String[] targets;
     if (cmd.hasOption(TARGET_OPTION_NAME)) {
       String argTarget = cmd.getOptionValue(TARGET_OPTION_NAME);
@@ -124,19 +132,20 @@ public final class LogLevel {
     } else {
       targets = new String[]{ROLE_MASTER, ROLE_WORKERS};
     }
-    return getTargetInfos(targets);
+    return getTargetInfos(targets, conf);
   }
 
-  private static List<TargetInfo> getTargetInfos(String[] targets) throws IOException {
+  private static List<TargetInfo> getTargetInfos(String[] targets, AlluxioConfiguration conf)
+      throws IOException {
     List<TargetInfo> targetInfoList = new ArrayList<>();
     for (String target : targets) {
       if (target.equals(ROLE_MASTER)) {
-        String masterHost = NetworkAddressUtils.getConnectHost(ServiceType.MASTER_WEB);
-        int masterPort = NetworkAddressUtils.getPort(ServiceType.MASTER_WEB);
+        String masterHost = NetworkAddressUtils.getConnectHost(ServiceType.MASTER_WEB, conf);
+        int masterPort = NetworkAddressUtils.getPort(ServiceType.MASTER_WEB, conf);
         targetInfoList.add(new TargetInfo(masterHost, masterPort, ROLE_MASTER));
       } else if (target.equals(ROLE_WORKERS)) {
-        AlluxioBlockStore alluxioBlockStore = AlluxioBlockStore.create();
-        List<BlockWorkerInfo> workerInfoList = alluxioBlockStore.getWorkerInfoList();
+        List<BlockWorkerInfo> workerInfoList =
+            FileSystemContext.create(ClientContext.create(conf)).getCachedWorkers();
         for (BlockWorkerInfo workerInfo : workerInfoList) {
           WorkerNetAddress netAddress = workerInfo.getNetAddress();
           targetInfoList.add(
@@ -182,13 +191,10 @@ public final class LogLevel {
     if (level != null) {
       uriBuilder.addParameter(LEVEL_OPTION_NAME, level);
     }
-    HttpUtils.post(uriBuilder.toString(), 5000, new HttpUtils.IProcessInputStream() {
-      @Override
-      public void process(InputStream inputStream) throws IOException {
-        ObjectMapper mapper = new ObjectMapper();
-        LogInfo logInfo = mapper.readValue(inputStream, LogInfo.class);
-        System.out.println(targetInfo.toString() + logInfo.toString());
-      }
+    HttpUtils.post(uriBuilder.toString(), 5000, inputStream -> {
+      ObjectMapper mapper = new ObjectMapper();
+      LogInfo logInfo = mapper.readValue(inputStream, LogInfo.class);
+      System.out.println(targetInfo.toString() + logInfo.toString());
     });
   }
 
@@ -200,7 +206,7 @@ public final class LogLevel {
   public static void main(String[] args) {
     int exitCode = 1;
     try {
-      logLevel(args);
+      logLevel(args, new InstancedConfiguration(ConfigurationUtils.defaults()));
       exitCode = 0;
     } catch (ParseException e) {
       printHelp("Unable to parse input args: " + e.getMessage());

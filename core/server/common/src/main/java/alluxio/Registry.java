@@ -15,13 +15,11 @@ import alluxio.resource.LockResource;
 import alluxio.util.CommonUtils;
 import alluxio.util.WaitForOptions;
 
-import com.google.common.base.Function;
 import com.google.common.collect.Lists;
 
 import java.io.IOException;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.Comparator;
 import java.util.Deque;
 import java.util.HashMap;
@@ -29,6 +27,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.TimeoutException;
 import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReentrantLock;
 
@@ -79,15 +78,18 @@ public class Registry<T extends Server<U>, U> {
    * @return the {@link Server} instance
    */
   public <W extends T> W get(final Class<W> clazz, int timeoutMs) {
-    CommonUtils.waitFor("server " + clazz.getName() + " to be created",
-        new Function<Void, Boolean>() {
-          @Override
-          public Boolean apply(Void input) {
-            try (LockResource r = new LockResource(mLock)) {
-              return mRegistry.get(clazz) != null;
-            }
-          }
-        }, WaitForOptions.defaults().setTimeoutMs(timeoutMs));
+    try {
+      CommonUtils.waitFor("server " + clazz.getName() + " to be created", () -> {
+        try (LockResource r = new LockResource(mLock)) {
+          return mRegistry.get(clazz) != null;
+        }
+      }, WaitForOptions.defaults().setTimeoutMs(timeoutMs));
+    } catch (InterruptedException e) {
+      Thread.currentThread().interrupt();
+      throw new RuntimeException(e);
+    } catch (TimeoutException e) {
+      throw new RuntimeException(e);
+    }
     T server = mRegistry.get(clazz);
     if (!(clazz.isInstance(server))) {
       throw new RuntimeException("Server is not an instance of " + clazz.getName());
@@ -111,7 +113,7 @@ public class Registry<T extends Server<U>, U> {
    */
   public List<T> getServers() {
     List<T> servers = new ArrayList<>(mRegistry.values());
-    Collections.sort(servers, new DependencyComparator());
+    servers.sort(new DependencyComparator());
     return servers;
   }
 
@@ -138,12 +140,22 @@ public class Registry<T extends Server<U>, U> {
   }
 
   /**
-   * Stops all {@link Server}s in reverse dependency order. If A depends on B, B is stopped
-   * before A.
+   * Stops all {@link Server}s in reverse dependency order. If A depends on B, A is stopped
+   * before B.
    */
   public void stop() throws IOException {
     for (T server : Lists.reverse(getServers())) {
       server.stop();
+    }
+  }
+
+  /**
+   * Closes all {@link Server}s in reverse dependency order. If A depends on B, A is closed
+   * before B.
+   */
+  public void close() throws IOException {
+    for (T server : Lists.reverse(getServers())) {
+      server.close();
     }
   }
 

@@ -11,11 +11,15 @@
 
 package alluxio.wire;
 
+import com.google.common.base.MoreObjects;
 import com.google.common.base.Objects;
 import com.google.common.base.Preconditions;
+import io.swagger.annotations.ApiModelProperty;
 
 import java.io.Serializable;
 import java.util.Comparator;
+import java.util.HashMap;
+import java.util.Map;
 
 import javax.annotation.concurrent.NotThreadSafe;
 
@@ -33,6 +37,8 @@ public final class WorkerInfo implements Serializable {
   private long mCapacityBytes;
   private long mUsedBytes;
   private long mStartTimeMs;
+  private Map<String, Long> mCapacityBytesOnTiers;
+  private Map<String, Long> mUsedBytesOnTiers;
 
   /**
    * Creates a new instance of {@link WorkerInfo}.
@@ -40,23 +46,9 @@ public final class WorkerInfo implements Serializable {
   public WorkerInfo() {}
 
   /**
-   * Creates a new instance of {@link WorkerInfo} from a thrift representation.
-   *
-   * @param workerInfo the thrift representation of a worker information
-   */
-  protected WorkerInfo(alluxio.thrift.WorkerInfo workerInfo) {
-    mId = workerInfo.getId();
-    mAddress = new WorkerNetAddress(workerInfo.getAddress());
-    mLastContactSec = workerInfo.getLastContactSec();
-    mState = workerInfo.getState();
-    mCapacityBytes = workerInfo.getCapacityBytes();
-    mUsedBytes = workerInfo.getUsedBytes();
-    mStartTimeMs = workerInfo.getStartTimeMs();
-  }
-
-  /**
    * @return the worker id
    */
+  @ApiModelProperty(value = "Worker id, used to identify the worker internally")
   public long getId() {
     return mId;
   }
@@ -64,6 +56,7 @@ public final class WorkerInfo implements Serializable {
   /**
    * @return the worker address
    */
+  @ApiModelProperty(value = "Address of the worker")
   public WorkerNetAddress getAddress() {
     return mAddress;
   }
@@ -71,6 +64,7 @@ public final class WorkerInfo implements Serializable {
   /**
    * @return the worker last contact (in seconds)
    */
+  @ApiModelProperty(value = "Seconds since the worker's last contact")
   public int getLastContactSec() {
     return mLastContactSec;
   }
@@ -78,6 +72,7 @@ public final class WorkerInfo implements Serializable {
   /**
    * @return the worker state
    */
+  @ApiModelProperty(value = "Operation state of the worker", example = "In Service")
   public String getState() {
     return mState;
   }
@@ -85,6 +80,7 @@ public final class WorkerInfo implements Serializable {
   /**
    * @return the worker total capacity (in bytes)
    */
+  @ApiModelProperty(value = "Size of the worker's local storage in bytes")
   public long getCapacityBytes() {
     return mCapacityBytes;
   }
@@ -92,6 +88,7 @@ public final class WorkerInfo implements Serializable {
   /**
    * @return the worker used capacity (in bytes)
    */
+  @ApiModelProperty(value = "Number of bytes used of the worker's local storage")
   public long getUsedBytes() {
     return mUsedBytes;
   }
@@ -99,8 +96,25 @@ public final class WorkerInfo implements Serializable {
   /**
    * @return the worker start time (in milliseconds)
    */
+  @ApiModelProperty(value = "Start time of the worker in epoch time in milliseconds")
   public long getStartTimeMs() {
     return mStartTimeMs;
+  }
+
+  /**
+   * @return the worker total capacity (in bytes) on tiers
+   */
+  @ApiModelProperty(value = "The max capacity of each of the worker's tiers in bytes")
+  public Map<String, Long> getCapacityBytesOnTiers() {
+    return mCapacityBytesOnTiers;
+  }
+
+  /**
+   * @return the worker used capacity (in bytes) on tiers
+   */
+  @ApiModelProperty(value = "The number of bytes currently used on each of the worker's tiers")
+  public Map<String, Long> getUsedBytesOnTiers() {
+    return mUsedBytesOnTiers;
   }
 
   /**
@@ -169,11 +183,21 @@ public final class WorkerInfo implements Serializable {
   }
 
   /**
-   * @return thrift representation of the worker information
+   * @param capacityBytesOnTiers the total worker capacity (in bytes) to use
+   * @return the worker information
    */
-  protected alluxio.thrift.WorkerInfo toThrift() {
-    return new alluxio.thrift.WorkerInfo(mId, mAddress.toThrift(), mLastContactSec, mState,
-        mCapacityBytes, mUsedBytes, mStartTimeMs);
+  public WorkerInfo setCapacityBytesOnTiers(Map<String, Long> capacityBytesOnTiers) {
+    mCapacityBytesOnTiers = new HashMap<>(capacityBytesOnTiers);
+    return this;
+  }
+
+  /**
+   * @param usedBytesOnTiers the used worker capacity (in bytes) to use
+   * @return the worker information
+   */
+  public WorkerInfo setUsedBytesOnTiers(Map<String, Long> usedBytesOnTiers) {
+    mUsedBytesOnTiers = new HashMap<>(usedBytesOnTiers);
+    return this;
   }
 
   @Override
@@ -185,16 +209,21 @@ public final class WorkerInfo implements Serializable {
       return false;
     }
     WorkerInfo that = (WorkerInfo) o;
-    return mId == that.mId && mAddress.equals(that.mAddress)
-        && mLastContactSec == that.mLastContactSec && mState.equals(that.mState)
+    return mId == that.mId && Objects.equal(mAddress, that.mAddress)
+        && mLastContactSec == that.mLastContactSec && Objects.equal(mState, that.mState)
         && mCapacityBytes == that.mCapacityBytes && mUsedBytes == that.mUsedBytes
-        && mStartTimeMs == that.mStartTimeMs;
+        && mStartTimeMs == that.mStartTimeMs
+        && Objects.equal(mCapacityBytesOnTiers, that.mCapacityBytesOnTiers)
+        && Objects.equal(mUsedBytesOnTiers, that.mUsedBytesOnTiers);
   }
 
   /**
    * Determine order from most recently contacted to least recently contacted.
    */
-  public static final class LastContactSecComparator implements Comparator<WorkerInfo> {
+  public static final class LastContactSecComparator implements Comparator<WorkerInfo>,
+      Serializable {
+    private static final long serialVersionUID = 0L;
+
     @Override
     public int compare(WorkerInfo o1, WorkerInfo o2) {
       return o1.getLastContactSec() - o2.getLastContactSec();
@@ -209,14 +238,15 @@ public final class WorkerInfo implements Serializable {
   @Override
   public int hashCode() {
     return Objects.hashCode(mId, mAddress, mLastContactSec, mState, mCapacityBytes, mUsedBytes,
-        mStartTimeMs);
+        mStartTimeMs, mCapacityBytesOnTiers, mUsedBytesOnTiers);
   }
 
   @Override
   public String toString() {
-    return Objects.toStringHelper(this).add("id", mId).add("address", mAddress)
+    return MoreObjects.toStringHelper(this).add("id", mId).add("address", mAddress)
         .add("lastContactSec", mLastContactSec).add("state", mState)
         .add("capacityBytes", mCapacityBytes).add("usedBytes", mUsedBytes)
-        .add("startTimeMs", mStartTimeMs).toString();
+        .add("startTimeMs", mStartTimeMs).add("capacityBytesOnTiers", mCapacityBytesOnTiers)
+        .add("usedBytesOnTiers", mUsedBytesOnTiers).toString();
   }
 }

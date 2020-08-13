@@ -11,12 +11,15 @@
 
 package alluxio.util.io;
 
+import alluxio.util.CommonUtils;
+
 import com.google.common.base.Preconditions;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.FileOutputStream;
 import java.io.IOException;
+import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 import java.nio.ByteBuffer;
 import java.nio.channels.ReadableByteChannel;
@@ -35,6 +38,7 @@ public final class BufferUtils {
 
   private static Method sCleanerCleanMethod;
   private static Method sByteBufferCleanerMethod;
+  private static Class sUnsafeClass;
 
   /**
    * Converts a byte to an integer.
@@ -51,6 +55,53 @@ public final class BufferUtils {
    * this direct buffer should be discarded. This is unsafe operation and currently a work-around to
    * avoid huge memory occupation caused by memory map.
    *
+   * @param buffer bytebuffer
+   */
+  public static synchronized void cleanDirectBuffer(ByteBuffer buffer) {
+    Preconditions.checkNotNull(buffer, "buffer is null");
+    Preconditions.checkArgument(buffer.isDirect(), "buffer isn't a DirectByteBuffer");
+    int javaVersion = CommonUtils.getJavaVersion();
+    if (javaVersion < 9) {
+      cleanDirectBufferJava8(buffer);
+    } else {
+      cleanDirectBufferJava11(buffer);
+    }
+  }
+
+  /**
+   * <p>
+   * Note: This calls the cleaner method on jdk 9+.
+   * See <a
+   * href="https://stackoverflow.com/questions/2972986/how-to-unmap-a-file-from-memory-mapped-
+   * using-filechannel-in-java"
+   * >more discussion</a>.
+   *
+   * @param buffer the byte buffer to be unmapped, this must be a direct buffer
+   */
+  private static synchronized void cleanDirectBufferJava11(ByteBuffer buffer) {
+    try {
+      if (sByteBufferCleanerMethod == null || sUnsafeClass == null) {
+        try {
+          sUnsafeClass = Class.forName("sun.misc.Unsafe");
+        } catch (Exception e) {
+          // jdk.internal.misc.Unsafe doesn't yet have an invokeCleaner() method,
+          // but that method should be added if sun.misc.Unsafe is removed.
+          sUnsafeClass = Class.forName("jdk.internal.misc.Unsafe");
+        }
+        sByteBufferCleanerMethod = sUnsafeClass.getMethod("invokeCleaner", ByteBuffer.class);
+        sByteBufferCleanerMethod.setAccessible(true);
+      }
+      Field theUnsafeField = sUnsafeClass.getDeclaredField("theUnsafe");
+      theUnsafeField.setAccessible(true);
+      Object theUnsafe = theUnsafeField.get(null);
+      sByteBufferCleanerMethod.invoke(theUnsafe, buffer);
+    } catch (Exception e) {
+      LOG.warn("Failed to unmap direct ByteBuffer: {}, error message: {}",
+          buffer.getClass().getName(), e.getMessage());
+    }
+  }
+
+  /**
    * <p>
    * NOTE: DirectByteBuffers are not guaranteed to be garbage-collected immediately after their
    * references are released and may lead to OutOfMemoryError. This function helps by calling the
@@ -60,9 +111,7 @@ public final class BufferUtils {
    *
    * @param buffer the byte buffer to be unmapped, this must be a direct buffer
    */
-  public static synchronized void cleanDirectBuffer(ByteBuffer buffer) {
-    Preconditions.checkNotNull(buffer, "buffer");
-    Preconditions.checkArgument(buffer.isDirect(), "buffer isn't a DirectByteBuffer");
+  private static synchronized void cleanDirectBufferJava8(ByteBuffer buffer) {
     try {
       if (sByteBufferCleanerMethod == null) {
         sByteBufferCleanerMethod = buffer.getClass().getMethod("cleaner");
@@ -122,21 +171,6 @@ public final class BufferUtils {
       ret.add(cloneByteBuffer(b));
     }
     return ret;
-  }
-
-  /**
-   * Extracts a correct {@link ByteBuffer} from Thrift RPC result.
-   *
-   * @param data result of Thrift RPC
-   * @return ByteBuffer with data extracted from the Thrift RPC result
-   */
-  public static ByteBuffer generateNewByteBufferFromThriftRPCResults(ByteBuffer data) {
-    // TODO(cc): This is a trick to fix the issue in thrift. Change the code to use metadata
-    // directly when thrift fixes the issue.
-    ByteBuffer correctData = ByteBuffer.allocate(data.limit() - data.position());
-    correctData.put(data);
-    correctData.flip();
-    return correctData;
   }
 
   /**
@@ -211,7 +245,7 @@ public final class BufferUtils {
 
   /**
    * Checks if the given byte array starts with an increasing sequence of bytes of the given
-   * length, starting from the given value.
+   * length, starting from the given value. The array length must be equal to the length checked.
    *
    * @param start the starting value to use
    * @param len the target length of the sequence
@@ -313,6 +347,16 @@ public final class BufferUtils {
     while (buffer.hasRemaining()) {
       dest.write(buffer);
     }
+  }
+
+  /**
+   * Gets the unsigned byte value of an integer. Useful for comparing to the result of reading
+   * from an input stream.
+   * @param i the integer to convert
+   * @return the integer value after casting as an unsigned byte
+   */
+  public static int intAsUnsignedByteValue(int i) {
+    return ((byte) i) & 0xFF;
   }
 
   /**

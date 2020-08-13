@@ -12,14 +12,20 @@
 package alluxio.client.file;
 
 import alluxio.annotation.PublicApi;
+import alluxio.grpc.TtlAction;
+import alluxio.security.authorization.AccessControlList;
+import alluxio.security.authorization.DefaultAccessControlList;
+import alluxio.wire.BlockInfo;
 import alluxio.wire.FileBlockInfo;
 import alluxio.wire.FileInfo;
-import alluxio.wire.TtlAction;
 
 import com.google.common.base.Preconditions;
 
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
 
+import javax.annotation.Nullable;
 import javax.annotation.concurrent.ThreadSafe;
 
 /**
@@ -40,6 +46,30 @@ public class URIStatus {
    */
   public URIStatus(FileInfo info) {
     mInfo = Preconditions.checkNotNull(info, "Cannot create a URIStatus from a null FileInfo");
+  }
+
+  /**
+   * @return the ACL entries for this path, mutable
+   */
+  public AccessControlList getAcl() {
+    return mInfo.getAcl();
+  }
+
+  /**
+   * @return the default ACL entries for this path, mutable
+   */
+  public DefaultAccessControlList getDefaultAcl() {
+    return mInfo.getDefaultAcl();
+  }
+
+  /**
+   * @param blockId the block ID
+   * @return the corresponding block info or null
+   */
+  @Nullable
+  public BlockInfo getBlockInfo(long blockId) {
+    FileBlockInfo info = mInfo.getFileBlockInfo(blockId);
+    return info == null ? null : info.getBlockInfo();
   }
 
   /**
@@ -64,11 +94,19 @@ public class URIStatus {
   }
 
   /**
-   * @return the unique identifier of the entity referenced by this uri used by Alluxio servers,
-   *         immutable
+   * @return the unique long identifier of the entity referenced by this uri used by Alluxio
+   *         servers, immutable
    */
   public long getFileId() {
     return mInfo.getFileId();
+  }
+
+  /**
+   * @return the unique string identifier of the entity referenced by this uri used by Alluxio
+   *         servers, immutable
+   */
+  public String getFileIdentifier() {
+    return mInfo.getFileIdentifier();
   }
 
   /**
@@ -97,6 +135,13 @@ public class URIStatus {
    */
   public long getLastModificationTimeMs() {
     return mInfo.getLastModificationTimeMs();
+  }
+
+  /**
+   * @return the epoch time the entity referenced by this uri was last accessed, mutable
+   */
+  public long getLastAccessTimeMs() {
+    return mInfo.getLastAccessTimeMs();
   }
 
   /**
@@ -170,6 +215,20 @@ public class URIStatus {
   }
 
   /**
+   * @return the maximum number of replicas of the entity referenced by this uri, mutable
+   */
+  public int getReplicationMax() {
+    return mInfo.getReplicationMax();
+  }
+
+  /**
+   * @return the minimum number of replicas of the entity referenced by this uri, mutable
+   */
+  public int getReplicationMin() {
+    return mInfo.getReplicationMin();
+  }
+
+  /**
    * @return whether the entity referenced by this uri can be stored in Alluxio space, mutable
    */
   public boolean isCacheable() {
@@ -207,6 +266,13 @@ public class URIStatus {
   }
 
   /**
+   * @return the pinned location list
+   */
+  public Set<String> getPinnedMediumTypes() {
+    return mInfo.getMediumTypes();
+  }
+
+  /**
    * @return whether the entity referenced by this uri is a mount point
    */
   public boolean isMountPoint() {
@@ -225,6 +291,30 @@ public class URIStatus {
    */
   public List<FileBlockInfo> getFileBlockInfos() {
     return mInfo.getFileBlockInfos();
+  }
+
+  /**
+   * @return the ufs fingerprint
+   */
+  public String getUfsFingerprint() {
+    return mInfo.getUfsFingerprint();
+  }
+
+  /**
+   * @return the extended attributes
+   */
+  public Map<String, byte[]> getXAttr() {
+    return mInfo.getXAttr();
+  }
+
+  /**
+   * This is an experimental API. The returned {@link FileInfo} object does not have a stable API.
+   * Make modifications to the returned file info object at your own risk.
+   *
+   * @return the underlying file info object
+   */
+  public FileInfo getFileInfo() {
+    return mInfo;
   }
 
   @Override
